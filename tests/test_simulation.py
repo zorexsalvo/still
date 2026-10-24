@@ -37,7 +37,8 @@ class SimulationTest(unittest.TestCase):
     def test_courier_cannot_leave_a_pickup_to_bounce_to_another_stop(self):
         self.act({"kind": "move", "place_id": "repair-shop"})
         self.assertEqual(options(self.path), [
-            {"kind": "collect", "delivery_id": "parcel-1"}, {"kind": "wait"},
+            {"kind": "collect", "delivery_id": "parcel-1"}, {"kind": "restore_file"},
+            {"kind": "visit", "person_id": "ivo"}, {"kind": "wait"},
         ])
         before = snapshot(self.path)
         with self.assertRaisesRegex(ValueError, "illegal"):
@@ -45,7 +46,8 @@ class SimulationTest(unittest.TestCase):
         self.assertEqual(snapshot(self.path), before)
         self.act({"kind": "collect", "delivery_id": "parcel-1"}, 1)
         self.assertEqual(options(self.path), [
-            {"kind": "move", "place_id": "records-office"}, {"kind": "wait"},
+            {"kind": "move", "place_id": "records-office"}, {"kind": "restore_file"},
+            {"kind": "visit", "person_id": "ivo"}, {"kind": "wait"},
         ])
 
     def test_move_biased_choices_still_complete_deliveries_over_a_day(self):
@@ -56,13 +58,13 @@ class SimulationTest(unittest.TestCase):
             action = next((action for action in actions if action["kind"] == "move"), actions[0])
             result = self.act(action, hour)
             completed.extend(event["delivery_id"] for event in result["events"] if event["kind"] == "delivered")
-        self.assertGreaterEqual(len(completed), 6)
+        self.assertEqual(len(completed), 3)  # Initial round, then one new delivery next UTC day.
         self.assertIn("parcel-1", completed)
         self.assertIn("parcel-2", completed)
 
     def test_writer_facts_describe_contents_not_internal_parcel_ids(self):
         facts = []
-        for hour in range(8):
+        for hour in range(24):
             result = self.act(options(self.path)[0], hour)
             facts.extend(event["text"] for event in result["events"])
         prose = " ".join(facts)
@@ -112,9 +114,10 @@ class SimulationTest(unittest.TestCase):
         self.act({"kind": "collect", "delivery_id": "parcel-2"}, 5)
         self.act({"kind": "move", "place_id": "repair-shop"}, 5)
         self.act({"kind": "deliver", "delivery_id": "parcel-2"}, 5)
+        self.act({"kind": "wait"}, 24)
         queued = next(item for item in snapshot(self.path)["deliveries"] if item["status"] == "queued")
-        self.act({"kind": "collect", "delivery_id": queued["id"]}, 5)
-        revisit = self.act({"kind": "move", "place_id": "records-office"}, 5)
+        self.act({"kind": "collect", "delivery_id": queued["id"]}, 24)
+        revisit = self.act({"kind": "move", "place_id": "records-office"}, 24)
         self.assertNotIn("inspector-ren", [event.get("person_id") for event in revisit["events"]])
         self.assertIn("encounter", [event["kind"] for event in revisit["events"]])
         with closing(sqlite3.connect(self.path)) as connection:

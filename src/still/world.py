@@ -8,7 +8,7 @@ from sqlalchemy import select
 
 from still.clock import timestamp
 from still.db import as_dict, create_tables, session
-from still.models import Courier, Delivery, Person, Place
+from still.models import Courier, Delivery, PersonalFile, Person, Place
 
 
 def delivery_description(identifier: str) -> str:
@@ -25,6 +25,9 @@ def initialize(path: Path, now: datetime) -> None:
     created_at = timestamp(now)
     with session(path, immediate=True) as db:
         create_tables(db)
+        if db.get(PersonalFile, 1) is None:
+            db.add(PersonalFile(id=1, name="old-index", progress=0,
+                                contents="[unreadable]\n[unreadable]\n[unreadable]\n", shown_progress=-1))
         if db.get(Courier, 1) is not None:
             return
         db.add_all([
@@ -54,6 +57,7 @@ def snapshot(path: Path) -> dict:
         return {
             "timezone": "UTC",
             "courier": as_dict(db.get(Courier, 1)),
+            "personal_file": as_dict(db.get(PersonalFile, 1)),
             "places": [as_dict(row) for row in db.scalars(select(Place).order_by(Place.id))],
             "people": [as_dict(row) for row in db.scalars(select(Person).order_by(Person.id))],
             "deliveries": [{**as_dict(row), "description": delivery_description(row.id)} for row in db.scalars(

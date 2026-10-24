@@ -14,7 +14,7 @@ curl http://localhost:8000/health
 SQLite is stored at `./data/still.sqlite3`, bind-mounted into `/app/data`.
 The entire directory is mounted to keep SQLite's WAL and shared-memory files alongside the database. Rebuilding or removing containers does not delete this directory. Deleting `data/` does delete the database. Do not copy a live database file alone for backups; use SQLite's backup API or stop the app before copying the directory.
 
-The server is exposed only on localhost. API docs: <http://localhost:8000/docs>. Compose runs one `worker` and one read-only `still` web process, using the same image. The web process waits for worker initialization on first start, but its ongoing health does not depend on model availability. Its SQLite connections are read-only; the directory mount remains writable because SQLite may need WAL/SHM coordination files.
+The web server is published on `0.0.0.0:8000`, so other devices on your network can reach it using your Mac's LAN address. It has no authentication: use a trusted network and do not expose it directly to the internet. The model server remains localhost-only. API docs: <http://localhost:8000/docs>. Compose runs one `worker` and one read-only `still` web process, using the same image. The web process waits for worker initialization on first start, but its ongoing health does not depend on model availability. Its SQLite connections are read-only; the directory mount remains writable because SQLite may need WAL/SHM coordination files.
 
 ```sh
 docker compose logs -f
@@ -30,7 +30,7 @@ uv run python -m still.worker
 uv run still
 ```
 
-`STILL_DB_PATH` defaults to `data/still.sqlite3`. The native `still` command binds only localhost. Docker's web command listens inside its container, with Compose publishing it only on `127.0.0.1`.
+`STILL_DB_PATH` defaults to `data/still.sqlite3`. The native `still` command and Docker's published web port both bind `0.0.0.0:8000`.
 
 ## Database access
 
@@ -66,11 +66,19 @@ These people are a starting cast, not a fixed population limit. On a late handof
 
 ## Simulation
 
-`still.simulation.options(path)` exposes legal actions: travel toward a queued pickup or carried parcel's destination, collect one parcel, hand it to its recipient, or wait. `tick(path, tick_key, now, action)` validates the action against current state and atomically stores the tick, events, encounters, and resulting state. A repeated tick key returns its original result without applying anything twice; backwards tick times are rejected.
+`still.simulation.options(path)` exposes legal actions: travel toward a queued pickup or carried parcel's destination, collect one parcel, hand it to its recipient, restore a personal file, visit Ivo to discuss it, or wait. `tick(path, tick_key, now, action)` validates the action against current state and atomically stores the tick, events, encounters, and resulting state. A repeated tick key returns its original result without applying anything twice; backwards tick times are rejected.
 
-Every tick is stored, even a quiet wait. Deadlines are checked against actual UTC, and a missed deadline is recorded once when next observed, not fabricated as an encounter during downtime. A late recipient still accepts a parcel, with an inspector attending that handoff. Once the queue is finished, another parcel becomes available with a six-hour deadline. Regular encounters accumulate counts and timestamps. When a pickup is waiting at the current stop, the courier must collect a parcel or wait before travelling elsewhere; it cannot bounce between stops while ignoring their packages.
+Every tick is stored, even a quiet wait. Deadlines are checked against actual UTC, and a missed deadline is recorded once when next observed, not fabricated as an encounter during downtime. A late recipient still accepts a parcel, with an inspector attending that handoff. An exhausted delivery round stays finished for the current UTC day. On the next UTC day, one new parcel becomes available with a six-hour deadline, without replaying missed days. Regular encounters accumulate counts and timestamps. When a pickup is waiting at the current stop, the courier must collect a parcel or wait before travelling elsewhere; it cannot bounce between stops while ignoring their packages.
 
-The initial deterministic writing rule marks first meetings, newly observed missed deadlines, and inspections as candidates for publication. Routine collection, on-time handoff, repeat encounters, and waiting stay silent unless another qualifying event occurred. No score model or random writing gate is used. `still.engine.run_tick` connects a legal choice, simulation consequences, and publication; the hourly worker drives it.
+The deterministic writing rule marks first meetings, newly observed missed deadlines, inspections, personal-file discoveries/completion, and nonwork visits as candidates for publication. Routine collection, on-time handoff, repeat encounters, and waiting stay silent unless another qualifying event occurred. No score model or random writing gate is used. `still.engine.run_tick` connects a legal choice, simulation consequences, and publication; the hourly worker drives it.
+
+## A life outside work
+
+The courier has a private `old-index` file with three damaged lines. `restore_file` recovers its path, an empty owner field, and a final `keep: yes` instruction in three persistent steps. The project is stored in SQLite, not by modifying any files on your Mac. Existing worlds receive the new project without resetting their courier or history.
+
+`visit` lets him show Ivo the file outside a delivery. Ivo responds to its current state; the same stage cannot be shown repeatedly. Visiting may involve travel, and both visiting and restoring consume a tick. Choosing either while work is pending can therefore make a delivery late. Hardware pressure blocks these activities too, and shutdown/downtime never advances the project.
+
+Completion persists across restarts. There is no endless task generator: after the file and its final visit are finished, the courier can wait for new work. The sim records the discoveries and reactions; Gemma chooses actions and writes from those facts rather than inventing a hobby in the prose.
 
 ## Model choices and publication
 
@@ -96,7 +104,7 @@ uv run python -m still.hardware --watch
 
 The worker accepts valid native samples no older than 90 seconds. Missing/stale/invalid files fall back to the worker's own readings, explicitly labelled as such: inside Docker those describe the VM, not the Mac. A native worker needs no separate sampler to read its own machine.
 
-Load greater than 1.5 per reported core prevents collecting or travelling for that tick; handing over an already-carried parcel at its destination remains legal. The resulting wait can make a delivery late. Recorded facts describe slow movement, never the metric. This threshold is a simple sim rule, not calibrated illness or thermal behavior; real Pi thermal calibration is deferred. Disk free space is recorded but does not yet change behavior.
+Load greater than 1.5 per reported core prevents collecting, travelling, restoring, or visiting for that tick; handing over an already-carried parcel at its destination remains legal. The resulting wait can make a delivery late. Recorded facts describe slow movement, never the metric. This threshold is a simple sim rule, not calibrated illness or thermal behavior; real Pi thermal calibration is deferred. Disk free space is recorded but does not yet change behavior.
 
 ## Reading the diary
 
@@ -130,14 +138,14 @@ For an opt-in check against your running model, without modifying the live world
 uv run python tests/live_smoke.py
 ```
 
-This creates a temporary world, drives a real model-backed worker tick, serves its published entry over HTTP, verifies reading while inference is unavailable, and checks replay/restart behavior. It expects the first tick to publish a first meeting; a legitimate silent tick under high load or a model wait can fail that demonstration without indicating broken silence behavior. It never resets the live database or accelerates its clock.
+This creates a temporary world, drives a real model-backed worker tick, serves its published entry over HTTP, verifies reading while inference is unavailable, and checks replay/restart behavior. It expects the first tick to publish a first meeting or a personal-file moment; a legitimate silent tick under high load or a model wait can fail that demonstration without indicating broken silence behavior. It never resets the live database or accelerates its clock.
 
 See [VERIFICATION.md](VERIFICATION.md) for the checks performed on the local MVP.
 
 ## Known limits
 
 - The courier's voice treats files, directories, queues, and permissions as its entire ordinary world. These are still simulated locations and contents, not yet host-filesystem geography or independently running process neighbours.
-- The route is a starter world: three places, two regulars, and an event-bound inspector. More encounter and establishment-change types are not implemented.
+- The route is a starter world: three places, two regulars, and an event-bound inspector. Beyond the personal-file visits, further encounter and establishment-change types are not implemented.
 - The deterministic gate has no quiet-streak nudge. Routine successful work after initial meetings can stay unpublished indefinitely.
 - Prose checks are heuristics, not semantic verification. Sustained voice quality and factuality still need sample review. The writer sees current-tick facts and bounded recent recorded context; deliberate autobiographical memory decay is not implemented.
 - Native host sampling is optional. Without fresh host samples, Docker readings describe its VM; temperature is unavailable, and the load threshold is not Pi thermal calibration.

@@ -9,12 +9,26 @@ from sqlalchemy.orm import Session
 from still.clock import timestamp
 from still.db import require_owner, session
 from still.hardware import under_pressure
-from still.models import Arrival, Courier, Delivery, Encounter, Event, Person, Place, Tick, WorkerLease
+from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalFile, Person, Place, Tick, WorkerLease
 from still.world import delivery_description
 
 
-WRITING_EVENTS = {"first_meeting", "deadline_missed", "inspection"}
+WRITING_EVENTS = {"first_meeting", "deadline_missed", "inspection", "file_recovered", "file_completed", "personal_visit"}
 ACTIVE_STATUSES = ("queued", "carried")
+FILE_RECOVERY = (
+    ("path: /archive/landing\nowner: [unreadable]\nkeep: [unreadable]\n",
+     "I opened my {name} file. I recovered the path /archive/landing. The owner line was still unreadable."),
+    ("path: /archive/landing\nowner: [blank]\nkeep: [unreadable]\n",
+     "I recovered the owner line in {name}. The field after it was empty. I left it empty."),
+    ("path: /archive/landing\nowner: [blank]\nkeep: yes\n",
+     "I recovered the last line in {name}. It said keep: yes. I saved it with the owner still blank."),
+)
+FILE_VISITS = (
+    "I showed Ivo my {name} file. He could not read its damaged lines. He handed it back.",
+    "I showed Ivo /archive/landing in {name}. He could not find the path in his index. I kept my copy.",
+    "I showed Ivo the empty owner field in {name}. He asked for the missing name. I had only the empty field.",
+    "I brought the recovered {name} to Ivo. He looked at the empty owner field. He handed it back without filling it in.",
+)
 
 
 def legal_actions(db: Session, hardware: dict | None = None) -> list[dict]:
@@ -36,6 +50,15 @@ def legal_actions(db: Session, hardware: dict | None = None) -> list[dict]:
         # Finish a pickup at this stop before travelling to another one.
         if not actions:
             actions.extend({"kind": "move", "place_id": destination} for destination in sorted(destinations))
+    personal = db.get(PersonalFile, 1)
+    local_pickup = any(action["kind"] == "collect" for action in actions)
+    if personal.progress < len(FILE_RECOVERY):
+        actions.append({"kind": "restore_file"})
+    ivo = db.get(Person, "ivo")
+    if personal.shown_progress < personal.progress and (
+        ivo.place_id == place or (carried is None and not local_pickup)
+    ):
+        actions.append({"kind": "visit", "person_id": "ivo"})
     if under_pressure(hardware or {}):
         actions = [action for action in actions if action["kind"] == "deliver"]
     return actions + [{"kind": "wait"}]
@@ -136,6 +159,22 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                        f"Ren came to check the late handoff of the {delivery_description(parcel.id)}, wrote down the time, and left.",
                        person_id=inspector.id, delivery_id=parcel.id)
                 _encounter(db, tick_id, inspector, parcel.destination.name, at)
+        elif kind == "restore_file":
+            personal = db.get(PersonalFile, 1)
+            contents, observation = FILE_RECOVERY[personal.progress]
+            personal.contents = contents
+            personal.progress += 1
+            event = "file_completed" if personal.progress == len(FILE_RECOVERY) else "file_recovered"
+            _event(db, tick_id, event, observation.format(name=personal.name),
+                   file_name=personal.name, progress=personal.progress)
+        elif kind == "visit":
+            personal = db.get(PersonalFile, 1)
+            person = db.get(Person, action["person_id"])
+            db.get(Courier, 1).place_id = person.place_id
+            _encounter(db, tick_id, person, person.place.name, at)
+            personal.shown_progress = personal.progress
+            _event(db, tick_id, "personal_visit", FILE_VISITS[personal.progress].format(name=personal.name),
+                   person_id=person.id, file_name=personal.name, progress=personal.progress)
         else:
             if under_pressure(hardware or {}):
                 _event(db, tick_id, "slowed", "Moving was slow. I stayed where I was.")
@@ -143,8 +182,10 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 _event(db, tick_id, "waited", "I stayed where I was for a while.")
 
         active = db.scalar(select(Delivery.id).where(Delivery.status.in_(ACTIVE_STATUSES)).limit(1))
-        if active is None:
-            # A route needs fresh work, not an independently simulated postal network.
+        if active is None and db.scalar(select(Delivery.id).where(
+            Delivery.created_at.startswith(at[:10])
+        ).limit(1)) is None:
+            # An exhausted round stays finished for the day, leaving time for a private life.
             count = db.scalar(select(func.count()).select_from(Delivery))
             sender, recipient, origin, destination = (
                 ("ivo", "mara", "repair-shop", "records-office") if count % 2 == 0

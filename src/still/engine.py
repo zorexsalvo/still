@@ -29,7 +29,9 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
         {"role": "system", "content": (
             "You are a courier deciding your next action. Each legal action has an explicit choice index. "
             "Return that exact zero-based index: 0 means the first action, not 1. "
-            "Try to finish outstanding deliveries before their deadlines. "
+            "Try to finish outstanding deliveries before their deadlines, but work is not your whole life. "
+            "Use spare time or a finished round to restore your personal file or show it to Ivo. "
+            "Personal actions use time too; choose them deliberately rather than wandering or waiting forever. "
             "Do not wait without a reason. The simulation, not you, decides consequences. "
             "Return only a JSON object containing the integer choice."
         )},

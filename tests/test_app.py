@@ -38,9 +38,9 @@ class AppTest(unittest.TestCase):
                 asyncio.run(check(path))
 
     @patch("still.uvicorn.run")
-    def test_native_viewer_binds_only_localhost(self, run):
+    def test_native_viewer_binds_all_interfaces(self, run):
         main()
-        run.assert_called_once_with("still:app", host="127.0.0.1", port=8000)
+        run.assert_called_once_with("still:app", host="0.0.0.0", port=8000)
 
     def test_viewer_does_not_initialize_a_missing_database(self):
         async def check():

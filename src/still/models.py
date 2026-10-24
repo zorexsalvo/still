@@ -33,6 +33,20 @@ class Courier(Base):
     started_at: Mapped[str] = mapped_column(Text)
 
 
+class PersonalFile(Base):
+    __tablename__ = "personal_file"
+    __table_args__ = (
+        CheckConstraint("id = 1"),
+        CheckConstraint("progress BETWEEN 0 AND 3"),
+        CheckConstraint("shown_progress BETWEEN -1 AND progress"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(Text)
+    progress: Mapped[int] = mapped_column(Integer)
+    contents: Mapped[str] = mapped_column(Text)
+    shown_progress: Mapped[int] = mapped_column(Integer)
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     __table_args__ = (
