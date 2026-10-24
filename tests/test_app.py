@@ -9,7 +9,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 
-from still import app, health, lifespan, world
+from still import app, health, lifespan, main, world
 from still.db import session
 from still.models import Downtime, Tick, WorldClock
 from still.worker import prepare
@@ -36,6 +36,11 @@ class AppTest(unittest.TestCase):
                 with patch("still.worker.utcnow", return_value=datetime(2026, 10, 24, 12, tzinfo=UTC)):
                     prepare(path)
                 asyncio.run(check(path))
+
+    @patch("still.uvicorn.run")
+    def test_native_viewer_binds_only_localhost(self, run):
+        main()
+        run.assert_called_once_with("still:app", host="127.0.0.1", port=8000)
 
     def test_viewer_does_not_initialize_a_missing_database(self):
         async def check():

@@ -58,4 +58,4 @@ def world() -> dict:
 
 
 def main() -> None:
-    uvicorn.run("still:app", host="0.0.0.0", port=8000)
+    uvicorn.run("still:app", host="127.0.0.1", port=8000)

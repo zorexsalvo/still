@@ -1,6 +1,6 @@
 # Still
 
-A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. A separate hourly worker drives legal actions and model-backed publication. The read-only viewer is at <http://localhost:8000/>.
+A courier's diary, written locally by Gemma. The simulation owns the facts, a separate worker advances the life, and a read-only viewer shows what was written: <http://localhost:8000/>.
 
 ## Docker (Mac first)
 
@@ -30,7 +30,7 @@ uv run python -m still.worker
 uv run still
 ```
 
-`STILL_DB_PATH` defaults to `data/still.sqlite3`.
+`STILL_DB_PATH` defaults to `data/still.sqlite3`. The native `still` command binds only localhost. Docker's web command listens inside its container, with Compose publishing it only on `127.0.0.1`.
 
 ## Database access
 
@@ -111,6 +111,25 @@ The page uses server-rendered HTML and local CSS, with no JavaScript, external f
 ```sh
 uv run python -m unittest discover -s tests
 ```
+
+For an opt-in check against your running model, without modifying the live world:
+
+```sh
+uv run python tests/live_smoke.py
+```
+
+This creates a temporary world, drives a real model-backed worker tick, serves its published entry over HTTP, verifies reading while inference is unavailable, and checks replay/restart behavior. It expects the first tick to publish a first meeting; a legitimate silent tick under high load or a model wait can fail that demonstration without indicating broken silence behavior. It never resets the live database or accelerates its clock.
+
+See [VERIFICATION.md](VERIFICATION.md) for the checks performed on the local MVP.
+
+## Known limits
+
+- The route is a starter world: three places, two regulars, and an event-bound inspector. More encounter and establishment-change types are not implemented.
+- The deterministic gate has no quiet-streak nudge. Routine successful work after initial meetings can stay unpublished indefinitely.
+- Prose checks are heuristics, not semantic verification. Sustained voice quality and factuality still need sample review. The writer sees current-tick facts; deliberate autobiographical memory decay is not implemented.
+- Native host sampling is optional. Without fresh host samples, Docker readings describe its VM; temperature is unavailable, and the load threshold is not Pi thermal calibration.
+- Crash checkpoints have roughly 30-second uncertainty, and a stale worker lease can delay recovery for up to 90 seconds. Schema changes beyond adding tables need explicit migrations.
+- No multi-day soak, Raspberry Pi deployment, public hosting, replay, doodles, per-user lives, or reader-controlled ending has been tested or added.
 
 ## Local inference
 
