@@ -9,10 +9,10 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 
 from still.db import as_dict, require_owner, session
-from still.models import BackfillTick, Entry, Event, Publication, Tick, WorkerLease
+from still.models import BackfillTick, Delivery, Entry, Event, PersonalFile, Person, Place, Publication, Tick, WorkerLease
 from still.prose import complete, generate
 from still.simulation import options, tick
-from still.world import snapshot
+from still.world import delivery_description, snapshot
 
 
 MODEL_ERRORS = (URLError, OSError, ValueError, KeyError, IndexError, TypeError)
@@ -55,7 +55,7 @@ def _entry(db, tick_id):
     return as_dict(row) if row else None
 
 
-def writing_moment(path: Path, result: dict) -> str:
+def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
     with session(path, readonly=True) as db:
         last_entry = db.scalar(select(Entry.tick_id).where(
             Entry.tick_id.not_in(select(BackfillTick.tick_id))
@@ -63,11 +63,34 @@ def writing_moment(path: Path, result: dict) -> str:
         recent = list(db.scalars(select(Event.facts).where(
             Event.tick_id > last_entry,
             Event.tick_id < result["id"],
+            Event.kind != "waited",
             Event.tick_id.not_in(select(BackfillTick.tick_id)),
         ).order_by(Event.id.desc()).limit(8)))
+        references = set(db.scalars(select(Person.name))) | set(db.scalars(select(Place.name)))
+        threads = []
+        personal = db.get(PersonalFile, 1)
+        if personal:
+            references.add(personal.name)
+            if "owner: [blank]" in personal.contents:
+                threads.append(f"The owner field in my {personal.name} file was still blank. Known contents:\n{personal.contents.rstrip()}")
+            elif "[unreadable]" in personal.contents:
+                threads.append(f"My {personal.name} file still had unreadable lines. Known contents:\n{personal.contents.rstrip()}")
+        at = db.get(Tick, result["id"]).at
+        for delivery in db.scalars(select(Delivery).where(
+            Delivery.status.in_(("queued", "carried")), Delivery.due_at < at,
+        ).order_by(Delivery.due_at, Delivery.id).limit(2 - len(threads))):
+            description = delivery_description(delivery.id)
+            references.add(description)
+            threads.append(f"The {description} was still undelivered past its deadline at the {delivery.destination.name}.")
+        for event in recent + result["events"]:
+            if event.get("delivery_id"):
+                references.add(delivery_description(event["delivery_id"]))
     background = "\n".join(event["text"] for event in reversed(recent)) or "None."
     current = "\n".join(event["text"] for event in result["events"])
-    return f"Earlier recorded context (not newly happening):\n{background}\n\nCurrent moment:\n{current}"
+    unresolved = "\n".join(f"- {thread}" for thread in threads) or "None recorded."
+    moment = (f"Unresolved threads (ongoing, not new discoveries):\n{unresolved}\n\n"
+              f"Earlier recorded context (not newly happening):\n{background}\n\nCurrent moment:\n{current}")
+    return moment, tuple(sorted(references))
 
 
 def run_tick(path: Path, tick_key: str, base_url: str, model: str,
@@ -98,7 +121,8 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
         if not claimed or status != "writing":
             return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": error}
     try:
-        text = generate(base_url, model, writing_moment(path, result))
+        moment, references = writing_moment(path, result)
+        text = generate(base_url, model, moment, references=references)
     except MODEL_ERRORS as failure:
         error = f"writing failed: {failure}"[:1000]
         with session(path, immediate=True) as db:

@@ -1,6 +1,7 @@
 """One-shot voice test; does not publish an entry or change the simulation."""
 
 import argparse
+from collections import Counter
 import json
 import re
 import sys
@@ -12,14 +13,18 @@ VOICE = """Write a private diary entry by a courier.
 His whole world is a terminal: files, directories, queues, and permissions are ordinary to him.
 Do not explain computers or add an outside world.
 He takes his world for granted. He does not know anyone reads his diary.
-Use first person, past tense, concrete details. Aim for three to five short sentences when the facts support them.
-A small moment can be shorter; never exceed six sentences.
+Write the day, not a transcription of event facts. Use first person, past tense, concrete details.
+Use only as many sentences as the moment needs, often one or two; never exceed six.
 Include I or my at least once. Do not turn facts about other people into things I did.
 No greeting, title, explanation, moral, figurative language, or stated emotions.
 Never explain being software or describe hardware metrics.
 Use only the supplied facts. Do not invent names, conversations, or events.
 Do not add scenery, sounds, weather, preferences, or actions absent from the facts.
-Keep the facts' concrete nouns. This is a factual note, not creative writing.
+An unresolved personal thread is the subject; work can interrupt it, but do not turn the diary into a receipt.
+Use the supplied ongoing threads without pretending they were discovered again today.
+Mention each named person, object or noun phrase only once; use pronouns after that.
+If removing the names and objects leaves only delivery/acceptance/signing, there is no entry.
+Do not invent human gestures or reactions to make routine work interesting.
 Let the supplied facts determine the length. Do not pad or list every action.
 Never add generic status closings such as 'The operation completed' or 'The transfer is complete'.
 Earlier recorded pickup or travel can supply concrete background instead of a closing summary.
@@ -59,7 +64,39 @@ def complete(base_url: str, model: str, messages: list[dict], *, response_format
     return text.strip()
 
 
-def validate(text: str) -> str:
+# shortcut: lexical references and content-word pairs approximate noun phrases; use a parser if false positives matter.
+GRAMMAR = set("i my me we our you your he she they it its his her their him them a an the and or but to of for from at in on with by as is was were be been had has have did do does not no still then again while after before below above this that these those there here only first s".split())
+RECEIPT = GRAMMAR | set("deliver delivered delivery deliveries took take carried carry collected collect accepted accept signed sign received receive handed went met left leave brought bring dropped drop gave give passed pass picked pick package parcel copy process concluded transfer complete transaction finished done up off out successfully".split())
+
+
+def check_subject(text: str, references: tuple[str, ...] = ()) -> None:
+    """Reject repeated references and entries with nothing left beyond a receipt."""
+    words = re.findall(r"\b\w+(?:[-’']\w+)*\b", text)
+    folded = [word.casefold() for word in words]
+    names = {word for word in words if word[0].isupper() and word.casefold() not in RECEIPT}
+    mentions = set(references) | names
+    for index in range(1, len(words)):
+        if (folded[index - 1] in {"a", "an", "the", "my", "his", "her", "their", "our"}
+                and folded[index] not in GRAMMAR
+                and (index + 1 == len(words) or folded[index + 1] in GRAMMAR)):
+            mentions.add(words[index])
+    for reference in mentions:
+        if not reference.strip():
+            continue
+        if len(re.findall(r"(?<!\w)" + re.escape(reference) + r"(?!\w)", text, re.IGNORECASE)) > 1:
+            raise ValueError("entry repeats a proper noun or named noun phrase")
+    pairs = Counter(zip(folded, folded[1:]))
+    if any(count > 1 and not (set(pair) & GRAMMAR) for pair, count in pairs.items()):
+        raise ValueError("entry repeats a noun phrase")
+    stripped = text
+    for reference in sorted(mentions, key=len, reverse=True):
+        stripped = re.sub(r"(?<!\w)" + re.escape(reference) + r"(?!\w)", " ", stripped, flags=re.IGNORECASE)
+    remainder = set(re.findall(r"\b\w+(?:[-’']\w+)*\b", stripped.casefold())) - RECEIPT
+    if not remainder:
+        raise ValueError("entry has no subject beyond a routine receipt")
+
+
+def validate(text: str, *, references: tuple[str, ...] = ()) -> str:
     sentences = [part for part in re.split(r"[.!?]+(?:\s|$)", text) if part.strip()]
     if not 1 <= len(sentences) <= 6 or len(text.split()) > 180:
         raise ValueError("entry must contain one to six short sentences, at most 180 words")
@@ -71,14 +108,17 @@ def validate(text: str) -> str:
         raise ValueError("entry states an emotion")
     if any(marker in text for marker in ("<think>", "</think>", "```")):
         raise ValueError("entry includes model formatting")
+    if re.search(r"\b(?:operations?|completed|updated|successfully)\b|\bstate\s+is\s+now\b", text, re.IGNORECASE):
+        raise ValueError("entry includes system language")
+    check_subject(text, references)
     return text
 
 
-def generate(base_url: str, model: str, moment: str = MOMENT) -> str:
+def generate(base_url: str, model: str, moment: str = MOMENT, *, references: tuple[str, ...] = ()) -> str:
     return validate(complete(base_url, model, [
         {"role": "system", "content": VOICE},
         {"role": "user", "content": moment},
-    ]))
+    ]), references=references)
 
 
 def main() -> None:

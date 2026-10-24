@@ -35,6 +35,16 @@ Chrome headless checked 1440px desktop and 390px mobile, plus isolated, labelled
 
 Text contrast: 12.58:1 primary, 6.03:1 secondary, 7.99:1 links. Captures and the review are retained locally under `.impeccable/review/`, not shipped as assets. Test browser/server processes were stopped afterward.
 
+## Writing gate and unresolved threads — 2026-10-24
+
+The revised gate keeps successful deliveries and first introductions silent, even when the private file is unresolved. Tests cover lateness/inspection eligibility, a maximum of two state-derived threads, persistence of the blank owner after decoding, removal of resolved items, receipt stripping, repeated names/noun phrases, and the requested system-language bans. The current suite passes **87 tests** natively and in Docker.
+
+The updated isolated real-Gemma smoke passed with a finished-round fixture. The model chose `restore_file` and wrote:
+
+> I opened my old-index file. I recovered the path /archive/landing. The owner line was still unreadable.
+
+Publication, HTTP reading with inference unavailable, replay, and restart/rest preservation passed. The live diary was not changed by these tests. The lexical guards are not evidence of general writing quality or semantic factuality.
+
 ## Limits of this evidence
 
 Hourly cadence and long gaps are tested deterministically rather than by waiting a full week. This is not a multi-day soak, a guarantee of future model factuality, a bespoke visual-brand approval, or Raspberry Pi performance validation. The starter route can produce long or indefinite silence under its intentionally simple writing gate. See README for operational limits and deferred features.

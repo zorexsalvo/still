@@ -5,7 +5,7 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from still.simulation import options, tick
+from still.simulation import WRITING_EVENTS, options, tick
 from still.world import initialize, snapshot
 
 
@@ -25,15 +25,20 @@ class SimulationTest(unittest.TestCase):
     def test_legal_route_and_quiet_ticks(self):
         self.assertNotIn({"kind": "collect", "delivery_id": "parcel-1"}, options(self.path))
         moved = self.act({"kind": "move", "place_id": "repair-shop"})
-        self.assertTrue(moved["publish"])
+        self.assertFalse(moved["publish"])
         collected = self.act({"kind": "collect", "delivery_id": "parcel-1"}, 1)
         self.assertFalse(collected["publish"])
         self.assertNotIn({"kind": "collect", "delivery_id": "parcel-2"}, options(self.path))
         self.act({"kind": "move", "place_id": "records-office"}, 2)
         delivered = self.act({"kind": "deliver", "delivery_id": "parcel-1"}, 3)
-        self.assertTrue(delivered["publish"])
+        self.assertFalse(delivered["publish"])
         self.assertIn("I delivered the corrected directory index to Mara.", delivered["events"][0]["text"])
         self.assertEqual(snapshot(self.path)["deliveries"][0]["status"], "delivered")
+
+    def test_candidates_are_interruptions_or_personal_threads_not_routine_work(self):
+        self.assertTrue({"deadline_missed", "delivery_failed", "delivery_refused", "inspection",
+                         "file_recovered", "file_completed", "personal_visit"} <= WRITING_EVENTS)
+        self.assertTrue(WRITING_EVENTS.isdisjoint({"delivered", "collected", "moved", "first_meeting", "waited"}))
 
     def test_courier_cannot_leave_a_pickup_to_bounce_to_another_stop(self):
         self.act({"kind": "move", "place_id": "repair-shop"})
@@ -59,7 +64,9 @@ class SimulationTest(unittest.TestCase):
             action = next((action for action in actions if action["kind"] == "move"), actions[0])
             result = self.act(action, hour)
             if any(event["kind"] == "delivered" for event in result["events"]):
-                self.assertTrue(result["publish"])
+                self.assertEqual(result["publish"], any(
+                    event["kind"] in ("inspection", "deadline_missed") for event in result["events"]
+                ))
             completed.extend(event["delivery_id"] for event in result["events"] if event["kind"] == "delivered")
         self.assertEqual(len(completed), 3)  # Initial round, then one new delivery next UTC day.
         self.assertIn("parcel-1", completed)

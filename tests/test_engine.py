@@ -3,14 +3,16 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 from urllib.error import URLError
 
+from sqlalchemy import select
+
 from still.db import session
 from still.engine import choose, run_tick, writing_moment
-from still.models import BackfillTick, Entry, Event, Tick
+from still.models import BackfillTick, Delivery, Entry, Event, PersonalFile, Tick
 from still.prose import validate
 from still.world import initialize, snapshot
 
@@ -44,7 +46,7 @@ class EngineTest(unittest.TestCase):
                 choose("http://local/v1", "still", actions, {})
 
     @patch("still.engine.generate", return_value="I went to the Repair shop. I met Ivo there.")
-    @patch("still.engine.choose", return_value={"kind": "move", "place_id": "repair-shop"})
+    @patch("still.engine.choose", return_value={"kind": "visit", "person_id": "ivo"})
     def test_publication_is_once_only_and_immutable(self, choose, generate):
         result = run_tick(self.path, "first", "http://local/v1", "still", now=self.now)
         self.assertIsNotNone(result["entry"])
@@ -68,7 +70,7 @@ class EngineTest(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT status FROM publications").fetchone()[0], "silent")
 
     @patch("still.engine.generate", side_effect=ValueError("truncated output"))
-    @patch("still.engine.choose", return_value={"kind": "move", "place_id": "repair-shop"})
+    @patch("still.engine.choose", return_value={"kind": "visit", "person_id": "ivo"})
     def test_failed_writer_is_not_retried_or_published_later(self, choose, generate):
         result = run_tick(self.path, "bad", "http://local/v1", "still", now=self.now)
         self.assertIsNone(result["entry"])
@@ -89,7 +91,7 @@ class EngineTest(unittest.TestCase):
             self.assertEqual(json.loads(connection.execute("SELECT action FROM ticks").fetchone()[0]), {"kind": "wait"})
 
     @patch("still.engine.generate", side_effect=KeyboardInterrupt)
-    @patch("still.engine.choose", return_value={"kind": "move", "place_id": "repair-shop"})
+    @patch("still.engine.choose", return_value={"kind": "visit", "person_id": "ivo"})
     def test_interrupted_generation_is_not_retried(self, choose, generate):
         with self.assertRaises(KeyboardInterrupt):
             run_tick(self.path, "interrupted", "http://local/v1", "still", now=self.now)
@@ -100,7 +102,7 @@ class EngineTest(unittest.TestCase):
     @patch("still.engine.generate", return_value="I made a note.")
     @patch("still.engine.choose")
     def test_writer_receives_recent_context_but_not_old_entries_or_backfill(self, choose, generate):
-        choose.return_value = {"kind": "move", "place_id": "repair-shop"}
+        choose.return_value = {"kind": "visit", "person_id": "ivo"}
         run_tick(self.path, "meeting", "http://local/v1", "still", now=self.now)
         choose.return_value = {"kind": "collect", "delivery_id": "parcel-1"}
         run_tick(self.path, "pickup", "http://local/v1", "still", now=self.now)
@@ -112,10 +114,11 @@ class EngineTest(unittest.TestCase):
             db.add(Event(tick_id=past.id, kind="test", facts={"text": "Backfilled noise."}))
             db.add(Entry(tick_id=past.id, at=past.at, text="I wrote a synthetic old entry."))
         choose.return_value = {"kind": "move", "place_id": "records-office"}
-        run_tick(self.path, "arrival", "http://local/v1", "still", now=self.now)
+        run_tick(self.path, "arrival", "http://local/v1", "still", now=self.now + timedelta(hours=5))
         moment = generate.call_args.args[2]
         self.assertIn("I collected the corrected directory index.", moment)
-        self.assertIn("Current moment:\nI went to the Records office.", moment)
+        self.assertIn("Current moment:\nThe deadline", moment)
+        self.assertIn("I went to the Records office.", moment)
         self.assertNotIn("I met Ivo", moment)
         self.assertNotIn("Backfilled noise", moment)
 
@@ -130,15 +133,60 @@ class EngineTest(unittest.TestCase):
             db.add(current)
             db.flush()
             current_id = current.id
-        moment = writing_moment(self.path, {"id": current_id, "events": [{"text": "I arrived."}]})
+        moment, _ = writing_moment(self.path, {"id": current_id, "events": [{"text": "I arrived."}]})
         self.assertEqual(moment.count("I noticed marker"), 8)
         self.assertNotIn("marker 3.", moment)
         self.assertLess(moment.index("marker 4."), moment.index("marker 11."))
         self.assertIn("Current moment:\nI arrived.", moment)
         self.assertNotIn("999", moment)
 
+    @patch("still.engine.generate")
+    @patch("still.engine.choose")
+    def test_routine_success_never_calls_writer_even_with_an_open_thread(self, choose, generate):
+        actions = [
+            {"kind": "move", "place_id": "repair-shop"},
+            {"kind": "collect", "delivery_id": "parcel-1"},
+            {"kind": "move", "place_id": "records-office"},
+            {"kind": "deliver", "delivery_id": "parcel-1"},
+        ]
+        for hour, action in enumerate(actions):
+            choose.return_value = action
+            result = run_tick(self.path, f"routine-{hour}", "http://local/v1", "still",
+                              now=self.now + timedelta(hours=hour))
+            self.assertIsNone(result["entry"])
+        generate.assert_not_called()
+        self.assertEqual(snapshot(self.path)["deliveries"][0]["status"], "delivered")
+
+    def test_threads_include_blank_owner_after_recovery_and_only_one_overdue_job(self):
+        with session(self.path) as db:
+            personal = db.get(PersonalFile, 1)
+            personal.progress = personal.shown_progress = 3
+            personal.contents = "path: /archive/landing\nowner: [blank]\nkeep: yes\n"
+            current = Tick(tick_key="threads", at=(self.now + timedelta(hours=7)).isoformat(),
+                           action={"kind": "wait"}, hardware={})
+            db.add(current)
+            db.flush()
+            current_id = current.id
+        moment, references = writing_moment(self.path, {"id": current_id, "events": [{"text": "I waited."}]})
+        threads = moment.split("\n\nEarlier recorded context")[0]
+        self.assertEqual(threads.count("\n- "), 2)
+        self.assertIn("owner field in my old-index file was still blank", threads)
+        self.assertIn("/archive/landing", threads)
+        self.assertIn("corrected directory index was still undelivered", threads)
+        self.assertNotIn("access request", threads)
+        self.assertIn("old-index", references)
+        self.assertIn("corrected directory index", references)
+        with session(self.path) as db:
+            db.get(PersonalFile, 1).contents = "path: /archive/landing\nowner: Ivo\nkeep: yes\n"
+            for delivery in db.scalars(select(Delivery)):
+                delivery.status = "delivered"
+        moment, _ = writing_moment(self.path, {"id": current_id, "events": []})
+        self.assertIn("None recorded.", moment)
+        self.assertNotIn("was still blank", moment)
+        self.assertNotIn("still undelivered", moment)
+
     def test_voice_checks(self):
-        self.assertEqual(validate("I left it on the shelf."), "I left it on the shelf.")
+        self.assertEqual(validate("I kept the owner line blank."), "I kept the owner line blank.")
         for text in ["Nothing happened.", "I felt lonely.", "I was like a shadow.",
                      "I went out. I came back. I went out. I came back. I stopped. I waited. I left.",
                      "I wrote this for you.", "```I waited.```"]:

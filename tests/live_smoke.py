@@ -17,7 +17,7 @@ from sqlalchemy import select
 
 from still.db import session
 from still.engine import run_tick
-from still.models import Entry, Tick
+from still.models import Delivery, Entry, Tick
 from still.worker import claim, next_tick, prepare, release, run_once
 
 
@@ -30,13 +30,17 @@ def main():
         claim(path, owner)
         try:
             prepare(path)
+            # A finished-round fixture leaves real model choices among personal actions, not routine receipts.
+            with session(path) as db:
+                for delivery in db.scalars(select(Delivery)):
+                    delivery.status = "delivered"
             assert asyncio.run(run_once(path, base_url, model, owner))
             due = next_tick(path)
             with session(path, readonly=True) as db:
                 entry = db.scalar(select(Entry))
-                first = db.scalar(select(Tick))
-                # shortcut: this demo expects a first-meeting entry; inspect legitimate silence before rerunning.
-                assert entry is not None, "First tick was silent or failed; inspect the model/host conditions"
+                # shortcut: this demo expects an eligible personal moment; inspect legitimate silence or rejection before rerunning.
+                assert entry is not None, "Personal tick was silent or rejected; inspect the model/host conditions"
+                first = db.get(Tick, entry.tick_id)
                 text, key = entry.text, first.tick_key
                 action = first.action
             with socket.socket() as port:
