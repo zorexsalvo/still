@@ -8,7 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 from urllib.error import URLError
 
-from still.engine import choose, run_tick
+from still.db import session
+from still.engine import choose, run_tick, writing_moment
+from still.models import BackfillTick, Entry, Event, Tick
 from still.prose import validate
 from still.world import initialize, snapshot
 
@@ -95,10 +97,50 @@ class EngineTest(unittest.TestCase):
         self.assertIsNone(result["entry"])
         self.assertEqual(generate.call_count, 1)
 
+    @patch("still.engine.generate", return_value="I made a note.")
+    @patch("still.engine.choose")
+    def test_writer_receives_recent_context_but_not_old_entries_or_backfill(self, choose, generate):
+        choose.return_value = {"kind": "move", "place_id": "repair-shop"}
+        run_tick(self.path, "meeting", "http://local/v1", "still", now=self.now)
+        choose.return_value = {"kind": "collect", "delivery_id": "parcel-1"}
+        run_tick(self.path, "pickup", "http://local/v1", "still", now=self.now)
+        with session(self.path) as db:
+            past = Tick(tick_key="backfill", at="2026-10-23T00:00:00+00:00", action={"kind": "wait"}, hardware={})
+            db.add(past)
+            db.flush()
+            db.add(BackfillTick(tick_id=past.id, day="2026-10-23", generated_at=self.now.isoformat(), model="test"))
+            db.add(Event(tick_id=past.id, kind="test", facts={"text": "Backfilled noise."}))
+            db.add(Entry(tick_id=past.id, at=past.at, text="I wrote a synthetic old entry."))
+        choose.return_value = {"kind": "move", "place_id": "records-office"}
+        run_tick(self.path, "arrival", "http://local/v1", "still", now=self.now)
+        moment = generate.call_args.args[2]
+        self.assertIn("I collected the corrected directory index.", moment)
+        self.assertIn("Current moment:\nI went to the Records office.", moment)
+        self.assertNotIn("I met Ivo", moment)
+        self.assertNotIn("Backfilled noise", moment)
+
+    def test_recent_context_is_bounded_and_chronological(self):
+        with session(self.path) as db:
+            for number in range(12):
+                previous = Tick(tick_key=f"context-{number}", at=self.now.isoformat(), action={"kind": "wait"}, hardware={"temperature_c": 999})
+                db.add(previous)
+                db.flush()
+                db.add(Event(tick_id=previous.id, kind="test", facts={"text": f"I noticed marker {number}."}))
+            current = Tick(tick_key="current", at=self.now.isoformat(), action={"kind": "wait"}, hardware={})
+            db.add(current)
+            db.flush()
+            current_id = current.id
+        moment = writing_moment(self.path, {"id": current_id, "events": [{"text": "I arrived."}]})
+        self.assertEqual(moment.count("I noticed marker"), 8)
+        self.assertNotIn("marker 3.", moment)
+        self.assertLess(moment.index("marker 4."), moment.index("marker 11."))
+        self.assertIn("Current moment:\nI arrived.", moment)
+        self.assertNotIn("999", moment)
+
     def test_voice_checks(self):
         self.assertEqual(validate("I left it on the shelf."), "I left it on the shelf.")
         for text in ["Nothing happened.", "I felt lonely.", "I was like a shadow.",
-                     "I went out. I came back. I went out. I came back. I stopped.",
+                     "I went out. I came back. I went out. I came back. I stopped. I waited. I left.",
                      "I wrote this for you.", "```I waited.```"]:
             with self.subTest(text=text), self.assertRaises(ValueError):
                 validate(text)

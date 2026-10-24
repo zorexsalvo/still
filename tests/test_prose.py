@@ -21,17 +21,25 @@ class ProseTest(unittest.TestCase):
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "http://localhost:8080/v1/chat/completions")
         self.assertEqual(json.loads(request.data)["model"], "local")
+        self.assertIn("His whole world is a terminal", json.loads(request.data)["messages"][0]["content"])
 
     @patch("still.prose.urlopen")
-    def test_three_and_four_sentence_entries_are_preserved(self, urlopen):
+    def test_three_to_six_sentence_entries_are_preserved(self, urlopen):
         sentences = ["I carried the package.", "Mara signed in the wrong box.",
-                     "I waited while she crossed it out.", "She signed again below it."]
-        for count in (3, 4):
+                     "I waited while she crossed it out.", "She signed again below it.",
+                     "I kept the first receipt.", "The ink had not dried."]
+        for count in (3, 4, 5, 6):
             text = " ".join(sentences[:count])
             with self.subTest(count=count):
                 urlopen.return_value = self.response(text)
                 self.assertEqual(generate("http://localhost:8080/v1", "local"), text)
         urlopen.return_value = self.response(" ".join(sentences + ["I left."]))
+        with self.assertRaises(ValueError):
+            generate("http://localhost:8080/v1", "local")
+
+    @patch("still.prose.urlopen")
+    def test_rejects_more_than_180_words(self, urlopen):
+        urlopen.return_value = self.response("I " + " ".join(["waited"] * 180) + ".")
         with self.assertRaises(ValueError):
             generate("http://localhost:8080/v1", "local")
 

@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from still.backfill import backfill
 from still.clock import timestamp
 from still.db import session
-from still.models import BackfillTick, Entry, Tick, WorkerState, WorldClock
+from still.engine import run_tick
+from still.models import BackfillTick, Entry, Event, Tick, WorkerState, WorldClock
 from still.simulation import tick
 from still.viewer import diary, published
 from still.worker import prepare
@@ -35,11 +36,11 @@ class BackfillTest(unittest.TestCase):
             self.clock = db.get(WorldClock, 1).last_seen
             self.due = db.get(WorkerState, 1).next_tick_at
 
-    def generate(self):
+    def generate(self, *, day=None, days=1):
         with patch("still.engine.choose", side_effect=lambda url, model, actions, state: actions[0]), patch(
             "still.engine.generate", return_value="I made a note."
         ):
-            return backfill(self.path, self.day, "http://unused/v1", "test-model")
+            return backfill(self.path, day or self.day, "http://unused/v1", "test-model", days=days)
 
     def unchanged(self):
         self.assertEqual(snapshot(self.path), self.before)
@@ -67,6 +68,45 @@ class BackfillTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already been backfilled"):
             self.generate()
         self.unchanged()
+
+    def test_two_days_are_continuous_and_tagged_by_their_own_utc_dates(self):
+        first = self.day - timedelta(days=1)
+        self.generate(day=first, days=2)
+        self.unchanged()
+        with session(self.path, readonly=True) as db:
+            counts = dict(db.execute(select(BackfillTick.day, func.count()).group_by(BackfillTick.day)).all())
+            self.assertEqual(counts, {first.isoformat(): 24, self.day.isoformat(): 24})
+            self.assertEqual(db.scalar(select(func.count()).select_from(Tick)), 49)
+            meetings = list(db.execute(select(Event.facts, BackfillTick.day).join(
+                BackfillTick, Event.tick_id == BackfillTick.tick_id
+            ).where(Event.kind == "first_meeting")))
+            self.assertEqual(sum(facts["person_id"] == "mara" for facts, _ in meetings), 1)
+            self.assertEqual(sum(facts["person_id"] == "ivo" for facts, _ in meetings), 1)
+            self.assertTrue(all(day == first.isoformat() for _, day in meetings))
+        for day in (first, self.day):
+            with self.subTest(day=day), self.assertRaisesRegex(ValueError, "already been backfilled"):
+                self.generate(day=day)
+
+    def test_failure_on_second_day_imports_neither_day(self):
+        calls = 0
+        def fail_on_second_day(*args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 25:
+                return {"error": "model offline", "entry": None}
+            return run_tick(*args, **kwargs)
+        with patch("still.backfill.run_tick", side_effect=fail_on_second_day):
+            with self.assertRaisesRegex(RuntimeError, "no history imported"):
+                self.generate(day=self.day - timedelta(days=1), days=2)
+        self.unchanged()
+        with session(self.path, readonly=True) as db:
+            self.assertEqual(db.scalar(select(func.count()).select_from(Tick)), 1)
+            self.assertEqual(db.scalar(select(func.count()).select_from(BackfillTick)), 0)
+
+    def test_invalid_day_counts_or_unfinished_ranges_are_rejected(self):
+        for days in (0, -1, True, 2):
+            with self.subTest(days=days), self.assertRaises(ValueError):
+                backfill(self.path, self.day, "http://unused/v1", "test-model", days=days)
 
     def test_failed_generation_imports_nothing(self):
         with patch("still.backfill.run_tick", return_value={"error": "model offline", "entry": None}):

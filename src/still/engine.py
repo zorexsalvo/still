@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 
 from still.db import as_dict, require_owner, session
-from still.models import Entry, Publication, Tick, WorkerLease
+from still.models import BackfillTick, Entry, Event, Publication, Tick, WorkerLease
 from still.prose import complete, generate
 from still.simulation import options, tick
 from still.world import snapshot
@@ -53,6 +53,21 @@ def _entry(db, tick_id):
     return as_dict(row) if row else None
 
 
+def writing_moment(path: Path, result: dict) -> str:
+    with session(path, readonly=True) as db:
+        last_entry = db.scalar(select(Entry.tick_id).where(
+            Entry.tick_id.not_in(select(BackfillTick.tick_id))
+        ).order_by(Entry.at.desc(), Entry.id.desc()).limit(1)) or 0
+        recent = list(db.scalars(select(Event.facts).where(
+            Event.tick_id > last_entry,
+            Event.tick_id < result["id"],
+            Event.tick_id.not_in(select(BackfillTick.tick_id)),
+        ).order_by(Event.id.desc()).limit(8)))
+    background = "\n".join(event["text"] for event in reversed(recent)) or "None."
+    current = "\n".join(event["text"] for event in result["events"])
+    return f"Earlier recorded context (not newly happening):\n{background}\n\nCurrent moment:\n{current}"
+
+
 def run_tick(path: Path, tick_key: str, base_url: str, model: str,
              *, now: datetime | None = None, hardware: dict | None = None,
              owner: str | None = None) -> dict:
@@ -81,9 +96,7 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
         if not claimed or status != "writing":
             return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": error}
     try:
-        text = generate(base_url, model, "Facts from this moment only:\n" + "\n".join(
-            event["text"] for event in result["events"]
-        ))
+        text = generate(base_url, model, writing_moment(path, result))
     except MODEL_ERRORS as failure:
         error = f"writing failed: {failure}"[:1000]
         with session(path, immediate=True) as db:

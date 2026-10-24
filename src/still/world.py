@@ -1,5 +1,6 @@
 """Persistent starting world; the model never owns these facts."""
 
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -8,6 +9,16 @@ from sqlalchemy import select
 from still.clock import timestamp
 from still.db import as_dict, create_tables, session
 from still.models import Courier, Delivery, Person, Place
+
+
+def delivery_description(identifier: str) -> str:
+    # shortcut: derive contents from legacy IDs; store explicit contents when deliveries gain richer metadata.
+    match = re.fullmatch(r"parcel-([1-9][0-9]*)", identifier, re.IGNORECASE)
+    if match is None:
+        return identifier
+    number = int(match[1])
+    description = ("corrected directory index", "access request", "sealed directory copy")[(number - 1) % 3]
+    return description if number <= 3 else f"{description} {number}"
 
 
 def initialize(path: Path, now: datetime) -> None:
@@ -45,7 +56,7 @@ def snapshot(path: Path) -> dict:
             "courier": as_dict(db.get(Courier, 1)),
             "places": [as_dict(row) for row in db.scalars(select(Place).order_by(Place.id))],
             "people": [as_dict(row) for row in db.scalars(select(Person).order_by(Person.id))],
-            "deliveries": [as_dict(row) for row in db.scalars(
+            "deliveries": [{**as_dict(row), "description": delivery_description(row.id)} for row in db.scalars(
                 select(Delivery).order_by(Delivery.due_at, Delivery.id)
             )],
         }

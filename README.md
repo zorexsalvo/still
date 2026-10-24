@@ -58,7 +58,7 @@ The worker saves a checkpoint about every 30 seconds and on graceful shutdown. A
 
 `GET /world` returns the courier, places, people, and delivery queue, with an explicit UTC label. It is read-only and never triggers generation.
 
-The initial fixture is a depot, records office, and repair shop; Mara receives at the office and Ivo works at the shop. Two packages need carrying between them, with deadlines four and six real hours after the world is first created. Names and stops are starter content, not a generated city.
+The initial fixture is a depot, records office, and repair shop; Mara receives at the office and Ivo works at the shop. A corrected directory index and an access request need carrying between them, with deadlines four and six real hours after the world is first created. Delivery facts use terminal-native contents rather than exposing `parcel-N` IDs. For now, descriptions are derived from legacy IDs (or use an already-named ID); richer contents will need explicit stored metadata. Names and stops are starter content, not a generated city.
 
 The world is seeded once, transactionally. Restarting preserves changes and does not reset deadlines, restore completed or removed deliveries, or invent activity during downtime. Tables use foreign keys and delivery-state constraints; the shared SQLAlchemy session setup enables foreign keys on every connection.
 
@@ -76,7 +76,7 @@ The initial deterministic writing rule marks first meetings, newly observed miss
 
 The model chooses an explicitly labelled, zero-based action index using a JSON schema containing only legal indices. Each option includes its exact `choice` number; the model never has to infer numbering from an unlabelled array. Code validates the result again; invalid/unavailable choice output records a quiet wait and a failure, never an invented action. The model receives UTC time and the current hard facts, not ownership of state.
 
-Qualifying ticks get one writing attempt based on their recorded event facts. Entries may contain one to four sentences; the prompt does not prefer a two-sentence limit, and extra sentences must be supported by facts rather than padding. Other ticks do not call the writer. Empty, truncated, overlong, non-first-person, reader-addressing, and obvious comparison/emotion output is rejected. These checks are deliberately small heuristics, not a complete semantic proof: factuality and voice still need ongoing sample review. The writer receives no hardware metrics or technical explanation of the premise.
+Qualifying ticks get one writing attempt based on their recorded event facts, plus up to eight earlier events since the last live entry. Backfilled history is excluded from live context, and earlier facts are clearly separated from the current moment. The writer aims for three to five short sentences when supported, with a cap of six sentences and 180 words; genuinely small moments may stay shorter. It selects details rather than padding or enumerating every action. Other ticks do not call the writer. Empty, truncated, overlong, non-first-person, reader-addressing, and obvious comparison/emotion output is rejected. These checks are deliberately small heuristics, not a complete semantic proof: factuality and voice still need ongoing sample review. The writer receives no hardware metrics or technical explanation of the premise.
 
 Published entries live in `entries`; SQLite triggers prohibit updates and deletes. `publications` records silent, writing, published, or failed outcomes. Duplicate tick keys never trigger fresh inference. Failed or interrupted writing is not retried later; the sim's history still records what happened, while the diary may stay blank. No draft/rewrite workflow, hosted judge, score gate, or markdown export is used.
 
@@ -114,7 +114,7 @@ On request, a completed past UTC day can be generated with real Gemma calls:
 uv run python -m still.backfill --day 2026-10-23
 ```
 
-Omit `--day` to use yesterday UTC. This is an explicit exception to live-only publication, not automatic downtime replay. It runs 24 hourly moments in an isolated starting world, then imports the resulting history in one transaction. Any generation/import failure leaves live history unchanged; a day cannot be imported twice. The live courier, packages, encounters, clock, and next scheduled tick are not rewound or replaced.
+Omit `--day` to use yesterday UTC. Use `uv run python -m still.backfill --days 2` for the last two completed UTC days, or combine `--day` and `--days` for a specific range. Multiple days run as one continuous life without resetting people or deliveries at midnight. This is an explicit exception to live-only publication, not automatic downtime replay. It runs 24 hourly moments per day in an isolated world, then imports the whole range in one transaction. Any generation/import failure leaves live history unchanged; a day cannot be imported twice. The live courier, packages, encounters, clock, and next scheduled tick are not rewound or replaced.
 
 All imported ticks carry `backfill_ticks` provenance, with the actual generation time and model. Historical machine conditions are unknown and are not fabricated. The viewer sorts by entry time rather than insertion order, and labels these entries **Backdated … not recorded live**. The imported fiction is not evidence of what the real machine or courier did yesterday, and is not used to retroactively rebuild live relationships or delivery state.
 
@@ -136,9 +136,10 @@ See [VERIFICATION.md](VERIFICATION.md) for the checks performed on the local MVP
 
 ## Known limits
 
+- The courier's voice treats files, directories, queues, and permissions as its entire ordinary world. These are still simulated locations and contents, not yet host-filesystem geography or independently running process neighbours.
 - The route is a starter world: three places, two regulars, and an event-bound inspector. More encounter and establishment-change types are not implemented.
 - The deterministic gate has no quiet-streak nudge. Routine successful work after initial meetings can stay unpublished indefinitely.
-- Prose checks are heuristics, not semantic verification. Sustained voice quality and factuality still need sample review. The writer sees current-tick facts; deliberate autobiographical memory decay is not implemented.
+- Prose checks are heuristics, not semantic verification. Sustained voice quality and factuality still need sample review. The writer sees current-tick facts and bounded recent recorded context; deliberate autobiographical memory decay is not implemented.
 - Native host sampling is optional. Without fresh host samples, Docker readings describe its VM; temperature is unavailable, and the load threshold is not Pi thermal calibration.
 - Crash checkpoints have roughly 30-second uncertainty, and a stale worker lease can delay recovery for up to 90 seconds. Schema changes beyond adding tables need explicit migrations.
 - No multi-day soak, Raspberry Pi deployment, public hosting, replay, doodles, per-user lives, or reader-controlled ending has been tested or added.

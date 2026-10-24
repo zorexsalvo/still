@@ -19,37 +19,44 @@ from still.world import initialize
 log = logging.getLogger(__name__)
 
 
-def backfill(path: Path, day: date, base_url: str, model: str) -> int:
-    if day >= datetime.now(UTC).date():
-        raise ValueError("backfill must be a completed past UTC day")
+def backfill(path: Path, day: date, base_url: str, model: str, *, days: int = 1) -> int:
+    if type(days) is not int or days < 1:
+        raise ValueError("days must be a positive integer")
+    today = datetime.now(UTC).date()
+    if day >= today or days > (today - day).days:
+        raise ValueError("backfill must contain only completed past UTC days")
     if not path.is_file():
         raise ValueError("start the live world before adding history")
-    label = day.isoformat()
+    labels = [(day + timedelta(days=offset)).isoformat() for offset in range(days)]
     with session(path, immediate=True) as db:
         create_tables(db)
         if db.get(Courier, 1) is None:
             raise ValueError("live world has not been initialized")
-        if db.scalar(select(BackfillTick.tick_id).where(BackfillTick.day == label).limit(1)) is not None:
-            raise ValueError(f"{label} has already been backfilled")
+        existing = db.scalar(select(BackfillTick.day).where(BackfillTick.day.in_(labels)).limit(1))
+        if existing is not None:
+            raise ValueError(f"{existing} has already been backfilled")
     start = datetime.combine(day, time(), UTC)
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "history.sqlite3"
         initialize(source, start)
-        for hour in range(24):
+        for hour in range(24 * days):
+            at = start + timedelta(hours=hour)
             result = run_tick(source, f"hour-{hour}", base_url, model,
-                              now=start + timedelta(hours=hour),
+                              now=at,
                               hardware={"scope": "backfill", "temperature_c": None})
             if result["error"]:
-                raise RuntimeError(f"Backfill stopped at {hour:02}:00 UTC: {result['error']}; no history imported")
-            log.info("%s %02d:00 UTC: %s", label, hour, "entry" if result["entry"] else "quiet")
+                raise RuntimeError(f"Backfill stopped at {at.isoformat()}: {result['error']}; no history imported")
+            log.info("%s: %s", at.isoformat(), "entry" if result["entry"] else "quiet")
         with session(source, readonly=True) as history, session(path, immediate=True) as live:
-            if live.scalar(select(BackfillTick.tick_id).where(BackfillTick.day == label).limit(1)) is not None:
-                raise ValueError(f"{label} has already been backfilled")
+            existing = live.scalar(select(BackfillTick.day).where(BackfillTick.day.in_(labels)).limit(1))
+            if existing is not None:
+                raise ValueError(f"{existing} has already been backfilled")
             entries = {entry.tick_id: entry for entry in history.scalars(select(Entry))}
             if not entries:
                 raise ValueError("No entries were generated; live history was left unchanged")
             generated_at = timestamp(datetime.now(UTC))
             for old in history.scalars(select(Tick).order_by(Tick.id)):
+                label = datetime.fromisoformat(old.at).date().isoformat()
                 current = Tick(tick_key=f"backfill:{label}:{old.tick_key}", at=old.at,
                                action=old.action, hardware=old.hardware, publish=old.publish)
                 live.add(current)
@@ -67,18 +74,22 @@ def backfill(path: Path, day: date, base_url: str, model: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--day", type=date.fromisoformat, default=datetime.now(UTC).date() - timedelta(days=1))
+    parser.add_argument("--day", type=date.fromisoformat, help="first UTC day; defaults to the last completed days")
+    parser.add_argument("--days", type=int, default=1, help="consecutive days to simulate without resetting (default: 1)")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
+        if args.days < 1:
+            raise ValueError("days must be a positive integer")
+        day = args.day or (datetime.now(UTC).date() - timedelta(days=args.days))
         count = backfill(
-            Path(os.environ.get("STILL_DB_PATH", "data/still.sqlite3")), args.day,
+            Path(os.environ.get("STILL_DB_PATH", "data/still.sqlite3")), day,
             os.environ.get("STILL_MODEL_BASE_URL", "http://127.0.0.1:8080/v1"),
-            os.environ.get("STILL_MODEL", "still"),
+            os.environ.get("STILL_MODEL", "still"), days=args.days,
         )
-    except (ValueError, RuntimeError) as failure:
+    except (ValueError, RuntimeError, OverflowError) as failure:
         parser.exit(1, f"{failure}\n")
-    print(f"Added {count} backdated entries for {args.day} UTC. Live courier state was not changed.")
+    print(f"Added {count} backdated entries across {args.days} day(s) from {day} UTC. Live courier state was not changed.")
 
 
 if __name__ == "__main__":

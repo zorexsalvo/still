@@ -9,15 +9,19 @@ from urllib.request import Request, urlopen
 
 
 VOICE = """Write a private diary entry by a courier.
+His whole world is a terminal: files, directories, queues, and permissions are ordinary to him.
+Do not explain computers or add an outside world.
 He takes his world for granted. He does not know anyone reads his diary.
-Use first person, past tense, one to four short sentences, concrete details.
+Use first person, past tense, concrete details. Aim for three to five short sentences when the facts support them.
+A small moment can be shorter; never exceed six sentences.
 Include I or my at least once. Do not turn facts about other people into things I did.
 No greeting, title, explanation, moral, figurative language, or stated emotions.
 Never explain being software or describe hardware metrics.
 Use only the supplied facts. Do not invent names, conversations, or events.
 Do not add scenery, sounds, weather, preferences, or actions absent from the facts.
 Keep the facts' concrete nouns. This is a factual note, not creative writing.
-Let the supplied facts determine the length, up to four sentences. Do not pad.
+Let the supplied facts determine the length. Do not pad or list every action.
+Anchor the entry in the current moment; earlier recorded facts are background, not new events.
 Do not use the word 'like'.
 Output only the entry. Plain and mundane is fine; vague is not."""
 
@@ -32,7 +36,7 @@ def complete(base_url: str, model: str, messages: list[dict], *, response_format
         "model": model,
         "messages": messages,
         "temperature": 0.4,
-        "max_tokens": 256,
+        "max_tokens": 384,
         "stream": False,
     }
     if response_format is not None:
@@ -55,8 +59,8 @@ def complete(base_url: str, model: str, messages: list[dict], *, response_format
 
 def validate(text: str) -> str:
     sentences = [part for part in re.split(r"[.!?]+(?:\s|$)", text) if part.strip()]
-    if not 1 <= len(sentences) <= 4 or len(text.split()) > 120:
-        raise ValueError("entry must contain one to four short sentences")
+    if not 1 <= len(sentences) <= 6 or len(text.split()) > 180:
+        raise ValueError("entry must contain one to six short sentences, at most 180 words")
     if not re.search(r"\b(I|my)\b", text):
         raise ValueError("entry must be first person")
     if re.search(r"\b(you|your|like|as if|as though)\b", text, re.IGNORECASE):

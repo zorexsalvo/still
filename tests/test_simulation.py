@@ -60,6 +60,23 @@ class SimulationTest(unittest.TestCase):
         self.assertIn("parcel-1", completed)
         self.assertIn("parcel-2", completed)
 
+    def test_writer_facts_describe_contents_not_internal_parcel_ids(self):
+        facts = []
+        for hour in range(8):
+            result = self.act(options(self.path)[0], hour)
+            facts.extend(event["text"] for event in result["events"])
+        prose = " ".join(facts)
+        self.assertNotIn("parcel-", prose.lower())
+        for description in ("corrected directory index", "access request", "sealed directory copy"):
+            self.assertIn(description, prose)
+
+    def test_named_database_ids_remain_collectible(self):
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("UPDATE deliveries SET id = 'corrected directory index' WHERE id = 'parcel-1'")
+        self.act({"kind": "move", "place_id": "repair-shop"})
+        result = self.act({"kind": "collect", "delivery_id": "corrected directory index"}, 1)
+        self.assertEqual(result["events"][0]["text"], "I collected the corrected directory index.")
+
     def test_illegal_action_has_no_effect(self):
         before = snapshot(self.path)
         for action in [

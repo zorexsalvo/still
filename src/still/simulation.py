@@ -10,6 +10,7 @@ from still.clock import timestamp
 from still.db import require_owner, session
 from still.hardware import under_pressure
 from still.models import Arrival, Courier, Delivery, Encounter, Event, Person, Place, Tick, WorkerLease
+from still.world import delivery_description
 
 
 WRITING_EVENTS = {"first_meeting", "deadline_missed", "inspection"}
@@ -101,7 +102,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             event_key = f"late:{parcel.id}"
             if db.scalar(select(Event.id).where(Event.event_key == event_key)) is None:
                 _event(db, tick_id, "deadline_missed",
-                       f"The deadline for {parcel.id} at the {parcel.destination.name} had passed. It was still undelivered.",
+                       f"The deadline for the {delivery_description(parcel.id)} at the {parcel.destination.name} had passed. It was still undelivered.",
                        event_key=event_key, delivery_id=parcel.id)
 
         kind = action["kind"]
@@ -116,11 +117,11 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         elif kind == "collect":
             parcel = db.get(Delivery, action["delivery_id"])
             parcel.status = "carried"
-            _event(db, tick_id, "collected", f"I collected {parcel.id}.", delivery_id=parcel.id)
+            _event(db, tick_id, "collected", f"I collected the {delivery_description(parcel.id)}.", delivery_id=parcel.id)
         elif kind == "deliver":
             parcel = db.get(Delivery, action["delivery_id"])
             parcel.status = "delivered"
-            _event(db, tick_id, "delivered", f"{parcel.recipient.name} accepted {parcel.id} and signed for it.",
+            _event(db, tick_id, "delivered", f"{parcel.recipient.name} accepted the {delivery_description(parcel.id)} and signed for it.",
                    delivery_id=parcel.id, recipient_id=parcel.recipient_id)
             if at > parcel.due_at:
                 inspector = db.get(Person, "inspector-ren")
@@ -132,7 +133,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 db.flush()
                 db.add(Arrival(tick_id=tick_id, person_id=inspector.id))
                 _event(db, tick_id, "inspection",
-                       f"Ren came to check the late handoff of {parcel.id}, wrote down the time, and left.",
+                       f"Ren came to check the late handoff of the {delivery_description(parcel.id)}, wrote down the time, and left.",
                        person_id=inspector.id, delivery_id=parcel.id)
                 _encounter(db, tick_id, inspector, parcel.destination.name, at)
         else:
@@ -149,10 +150,12 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 ("ivo", "mara", "repair-shop", "records-office") if count % 2 == 0
                 else ("mara", "ivo", "records-office", "repair-shop")
             )
-            db.add(Delivery(id=f"parcel-{tick_id + 2}", sender_id=sender, recipient_id=recipient,
+            identifier = f"parcel-{tick_id + 2}"
+            db.add(Delivery(id=identifier, sender_id=sender, recipient_id=recipient,
                             origin_id=origin, destination_id=destination, created_at=at,
                             due_at=timestamp(now + timedelta(hours=6))))
-            _event(db, tick_id, "work_arrived", "Another package was waiting on the route.")
+            _event(db, tick_id, "work_arrived", f"The {delivery_description(identifier)} was waiting on the route.",
+                   delivery_id=identifier)
         kinds = set(db.scalars(select(Event.kind).where(Event.tick_id == tick_id)))
         current.publish = int(bool(kinds & WRITING_EVENTS))
         return _result(db, tick_id)
