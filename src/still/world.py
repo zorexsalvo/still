@@ -59,6 +59,21 @@ SCHEMA = (
         last_at TEXT NOT NULL,
         count INTEGER NOT NULL CHECK (count > 0)
     )""",
+    """CREATE TABLE IF NOT EXISTS publications (
+        tick_id INTEGER PRIMARY KEY REFERENCES ticks(id),
+        status TEXT NOT NULL CHECK (status IN ('silent', 'writing', 'published', 'failed')),
+        error TEXT
+    )""",
+    """CREATE TABLE IF NOT EXISTS entries (
+        id INTEGER PRIMARY KEY,
+        tick_id INTEGER NOT NULL UNIQUE REFERENCES ticks(id),
+        at TEXT NOT NULL,
+        text TEXT NOT NULL CHECK (length(trim(text)) > 0)
+    )""",
+    """CREATE TRIGGER IF NOT EXISTS entries_no_update BEFORE UPDATE ON entries
+        BEGIN SELECT RAISE(ABORT, 'published entries are immutable'); END""",
+    """CREATE TRIGGER IF NOT EXISTS entries_no_delete BEFORE DELETE ON entries
+        BEGIN SELECT RAISE(ABORT, 'published entries are immutable'); END""",
     """CREATE TABLE IF NOT EXISTS arrivals (
         tick_id INTEGER NOT NULL REFERENCES ticks(id),
         person_id TEXT NOT NULL REFERENCES people(id),

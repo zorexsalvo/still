@@ -1,6 +1,6 @@
 # Still
 
-A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. Legal simulation actions are implemented; continuous model integration and the worker are not yet connected.
+A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. Legal simulation actions and model-backed tick publication are implemented; the continuous worker and viewer are next.
 
 ## Docker (Mac first)
 
@@ -60,7 +60,15 @@ These people are a starting cast, not a fixed population limit. On a late handof
 
 Every tick is stored, even a quiet wait. Deadlines are checked against actual UTC, and a missed deadline is recorded once when next observed, not fabricated as an encounter during downtime. A late recipient still accepts a parcel, with an inspector attending that handoff. Once the queue is finished, another parcel becomes available with a six-hour deadline. Regular encounters accumulate counts and timestamps.
 
-The initial deterministic writing rule marks first meetings, newly observed missed deadlines, and inspections as candidates for publication. Routine collection, on-time handoff, repeat encounters, and waiting stay silent unless another qualifying event occurred. No score model or random writing gate is used. The hourly worker and actual publishing will connect these parts next.
+The initial deterministic writing rule marks first meetings, newly observed missed deadlines, and inspections as candidates for publication. Routine collection, on-time handoff, repeat encounters, and waiting stay silent unless another qualifying event occurred. No score model or random writing gate is used. `still.engine.run_tick` connects a legal choice, simulation consequences, and publication; the hourly worker will drive it next.
+
+## Model choices and publication
+
+The model chooses a numbered action using a JSON schema containing only legal indices. Code validates the result again; invalid/unavailable choice output records a quiet wait and a failure, never an invented action. The model receives UTC time and the current hard facts, not ownership of state.
+
+Qualifying ticks get one writing attempt based on their recorded event facts. Other ticks do not call the writer. Empty, truncated, overlong, non-first-person, reader-addressing, and obvious comparison/emotion output is rejected. These checks are deliberately small heuristics, not a complete semantic proof: factuality and voice still need ongoing sample review. The writer receives no hardware metrics or technical explanation of the premise.
+
+Published entries live in `entries`; SQLite triggers prohibit updates and deletes. `publications` records silent, writing, published, or failed outcomes. Duplicate tick keys never trigger fresh inference. Failed or interrupted writing is not retried later; the sim's history still records what happened, while the diary may stay blank. No draft/rewrite workflow, hosted judge, score gate, or markdown export is used.
 
 ## Tests
 
