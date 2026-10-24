@@ -1,0 +1,9 @@
+.git
+.venv
+.codex
+.gemini
+.impeccable
+data
+__pycache__
+*.pyc
+tests
