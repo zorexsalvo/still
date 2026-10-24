@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T13:14:00Z",
+  "title": "Design System: Still",
+  "extensions": {
+    "breakpoints": [{"name": "narrow", "value": "36rem"}],
+    "shadows": [],
+    "motion": []
+  },
+  "components": [
+    {
+      "name": "Diary navigation",
+      "kind": "nav",
+      "description": "Normal underlined links with visible hover and keyboard focus.",
+      "html": "<a class=\"ds-link\" href=\"#\">Earlier entries</a>",
+      "css": ".ds-link{font: .875rem/1.5 system-ui,sans-serif;color:var(--link,#1c536e);text-underline-offset:.22em;text-decoration-thickness:1px;display:inline-block;padding-block:.75rem}.ds-link:hover{color:var(--ink,#23323d);text-decoration-thickness:2px}.ds-link:focus-visible{outline:2px solid var(--link,#1c536e);outline-offset:5px}"
+    }
+  ],
+  "narrative": {
+    "overview": "This records the implemented local-MVP baseline, not a separately approved visual rebrand. Actual diary prose is the content; interface copy stays outside it. The surface is a readable document rather than a simulation dashboard.",
+    "dos": [
+      "Do keep UTC visible in the frame and individual timestamps.",
+      "Do render actual published text unchanged and escaped.",
+      "Do keep readable measures, visible link affordances, and keyboard access."
+    ],
+    "donts": [
+      "Don't use demonstration text to fill a quiet live diary.",
+      "Don't introduce motion or reader controls that influence the life without a new product decision."
+    ]
+  }
+}

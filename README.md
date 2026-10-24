@@ -1,6 +1,6 @@
 # Still
 
-A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. A separate hourly worker now drives legal actions and model-backed publication. The diary viewer is next.
+A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. A separate hourly worker drives legal actions and model-backed publication. The read-only viewer is at <http://localhost:8000/>.
 
 ## Docker (Mac first)
 
@@ -97,6 +97,14 @@ uv run python -m still.hardware --watch
 The worker accepts valid native samples no older than 90 seconds. Missing/stale/invalid files fall back to the worker's own readings, explicitly labelled as such: inside Docker those describe the VM, not the Mac. A native worker needs no separate sampler to read its own machine.
 
 Load greater than 1.5 per reported core prevents collecting or travelling for that tick; handing over an already-carried parcel at its destination remains legal. The resulting wait can make a delivery late. Recorded facts describe slow movement, never the metric. This threshold is a simple sim rule, not calibrated illness or thermal behavior; real Pi thermal calibration is deferred. Disk free space is recorded but does not yet change behavior.
+
+## Reading the diary
+
+Open <http://localhost:8000/>. Published entries appear newest first, with UTC dates, permalinks, and up to 50 entries per page. Earlier/latest links use stable cursor pagination. Gaps count complete UTC dates without entries; they never manufacture prose or imply that the worker was alive throughout a gap.
+
+The page uses server-rendered HTML and local CSS, with no JavaScript, external fonts, or image requests. Use **Refresh entries** for new text; the **As of** timestamp describes that page load, not a live clock. Empty and recoverable database-error views do not request a generation. Stored text is escaped, and a restrictive content-security policy prevents scripts from running in diary content.
+
+`GET /clock`, `GET /world`, and `/docs` remain local development endpoints. No endpoint accepts simulation actions or diary writes. The viewer remains readable while inference or the worker is unavailable, as long as SQLite remains readable.
 
 ## Tests
 

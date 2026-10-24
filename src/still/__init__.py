@@ -4,11 +4,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
 
 from still.db import session
 from still.models import Courier
+from still.viewer import diary
 from still.world import snapshot
 
 
@@ -28,6 +31,13 @@ app = FastAPI(
     description="World time follows real time in UTC. All timestamps are UTC.",
     lifespan=lifespan,
 )
+
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+
+
+@app.get("/", response_class=HTMLResponse)
+def index(before: int | None = Query(default=None, ge=1, le=9223372036854775807)) -> HTMLResponse:
+    return diary(app.state.db_path, before)
 
 
 @app.get("/health")
