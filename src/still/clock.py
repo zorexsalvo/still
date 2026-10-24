@@ -1,9 +1,10 @@
 """World time is real UTC time; sleep classification applies only to downtime."""
 
-import sqlite3
-from contextlib import closing
 from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+
+from still.db import session
+from still.models import Downtime, WorldClock
 
 
 def timestamp(value: datetime) -> str:
@@ -34,35 +35,21 @@ def split_downtime(start: datetime, end: datetime):
 
 def resume(path: Path, now: datetime) -> None:
     current = timestamp(now)
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("""CREATE TABLE IF NOT EXISTS world_clock (
-            id INTEGER PRIMARY KEY CHECK (id = 1),
-            last_seen TEXT NOT NULL
-        )""")
-        connection.execute("""CREATE TABLE IF NOT EXISTS downtime (
-            id INTEGER PRIMARY KEY,
-            started_at TEXT NOT NULL,
-            ended_at TEXT NOT NULL,
-            kind TEXT NOT NULL CHECK (kind IN ('sleep', 'mundane'))
-        )""")
-        row = connection.execute("SELECT last_seen FROM world_clock WHERE id = 1").fetchone()
-        if row is not None:
-            for start, end, kind in split_downtime(datetime.fromisoformat(row[0]), now):
-                connection.execute(
-                    "INSERT INTO downtime (started_at, ended_at, kind) VALUES (?, ?, ?)",
-                    (timestamp(start), timestamp(end), kind),
-                )
-        connection.execute(
-            "INSERT INTO world_clock (id, last_seen) VALUES (1, ?) "
-            "ON CONFLICT (id) DO UPDATE SET last_seen = excluded.last_seen",
-            (current,),
-        )
+    with session(path, immediate=True) as db:
+        WorldClock.__table__.create(db.connection(), checkfirst=True)
+        Downtime.__table__.create(db.connection(), checkfirst=True)
+        clock = db.get(WorldClock, 1)
+        if clock is None:
+            db.add(WorldClock(id=1, last_seen=current))
+        else:
+            for start, end, kind in split_downtime(datetime.fromisoformat(clock.last_seen), now):
+                db.add(Downtime(started_at=timestamp(start), ended_at=timestamp(end), kind=kind))
+            clock.last_seen = current
 
 
 def checkpoint(path: Path, now: datetime) -> None:
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute(
-            "UPDATE world_clock SET last_seen = MAX(last_seen, ?) WHERE id = 1",
-            (timestamp(now),),
-        )
+    current = timestamp(now)
+    with session(path, immediate=True) as db:
+        clock = db.get(WorldClock, 1)
+        if clock is not None and current > clock.last_seen:
+            clock.last_seen = current

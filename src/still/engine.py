@@ -1,12 +1,15 @@
 """One model-backed tick. No web request calls this module."""
 
 import json
-import sqlite3
-from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.error import URLError
 
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert
+
+from still.db import as_dict, session
+from still.models import Entry, Publication, Tick
 from still.prose import complete, generate
 from still.simulation import options, tick
 from still.world import snapshot
@@ -42,19 +45,18 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
     return actions[number]
 
 
-def _entry(connection, tick_id):
-    connection.row_factory = sqlite3.Row
-    row = connection.execute("SELECT * FROM entries WHERE tick_id = ?", (tick_id,)).fetchone()
-    return dict(row) if row else None
+def _entry(db, tick_id):
+    row = db.scalar(select(Entry).where(Entry.tick_id == tick_id))
+    return as_dict(row) if row else None
 
 
 def run_tick(path: Path, tick_key: str, base_url: str, model: str,
              *, now: datetime | None = None, hardware: dict | None = None) -> dict:
-    with closing(sqlite3.connect(path)) as connection:
-        existing = connection.execute("SELECT id FROM ticks WHERE tick_key = ?", (tick_key,)).fetchone()
-        if existing:
+    with session(path, readonly=True) as db:
+        existing = db.scalar(select(Tick.id).where(Tick.tick_key == tick_key))
+        if existing is not None:
             # A retry can read the result, never generate a skipped moment later.
-            return {"tick_id": existing[0], "entry": _entry(connection, existing[0]), "error": None}
+            return {"tick_id": existing, "entry": _entry(db, existing), "error": None}
     error = None
     try:
         state = snapshot(path)
@@ -66,27 +68,24 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
     result = tick(path, tick_key, now or datetime.now(UTC), action, hardware)
     tick_id = result["id"]
     status = "failed" if error else ("writing" if result["publish"] else "silent")
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("PRAGMA foreign_keys=ON")
-        claimed = connection.execute(
-            "INSERT OR IGNORE INTO publications (tick_id, status, error) VALUES (?, ?, ?)",
-            (tick_id, status, error),
-        ).rowcount
+    with session(path, immediate=True) as db:
+        claimed = db.execute(insert(Publication).values(
+            tick_id=tick_id, status=status, error=error
+        ).on_conflict_do_nothing(index_elements=[Publication.tick_id])).rowcount
         if not claimed or status != "writing":
-            return {"tick_id": tick_id, "entry": _entry(connection, tick_id), "error": error}
+            return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": error}
     try:
         text = generate(base_url, model, "Facts from this moment only:\n" + "\n".join(
             event["text"] for event in result["events"]
         ))
     except MODEL_ERRORS as failure:
         error = f"writing failed: {failure}"[:1000]
-        with closing(sqlite3.connect(path)) as connection, connection:
-            connection.execute("UPDATE publications SET status = 'failed', error = ? WHERE tick_id = ?",
-                               (error, tick_id))
+        with session(path, immediate=True) as db:
+            publication = db.get(Publication, tick_id)
+            publication.status = "failed"
+            publication.error = error
         return {"tick_id": tick_id, "entry": None, "error": error}
-    with closing(sqlite3.connect(path)) as connection, connection:
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("INSERT INTO entries (tick_id, at, text) VALUES (?, ?, ?)",
-                           (tick_id, result["at"], text))
-        connection.execute("UPDATE publications SET status = 'published' WHERE tick_id = ?", (tick_id,))
-        return {"tick_id": tick_id, "entry": _entry(connection, tick_id), "error": None}
+    with session(path, immediate=True) as db:
+        db.add(Entry(tick_id=tick_id, at=result["at"], text=text))
+        db.get(Publication, tick_id).status = "published"
+        return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": None}

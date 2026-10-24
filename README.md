@@ -30,6 +30,14 @@ uv run still
 
 `STILL_DB_PATH` defaults to `data/still.sqlite3`.
 
+## Database access
+
+Synchronous SQLAlchemy 2.x models live in `src/still/models.py`. Use the session context manager in `src/still/db.py` directly; there is no repository layer or async database driver. Sessions commit on success, roll back on failure, and close their connections. Read-only sessions open SQLite in `mode=ro`; operations that must serialize state changes use `BEGIN IMMEDIATE`.
+
+Existing table names, UTC ISO-text timestamps, JSON contents, and SQLite files are preserved. Initialization creates missing tables and immutable-entry triggers; it does not rewrite data or alter existing tables. No reset or export/import is needed for this ORM migration. Future column/constraint changes will need explicit schema migrations; `create_all` is not a schema-upgrade framework.
+
+Tests include a pre-ORM database fixture, ORM and raw-SQL constraint checks, rollback after partial work, concurrent duplicate ticks, and enforced read-only connections.
+
 ## World clock (UTC)
 
 World time follows real time 1:1, not a counter advanced by ticks. `GET /clock` returns the current timestamp with an explicit `UTC` label; API documentation also identifies the timezone. The future simulation loop will rest one real hour after each completed tick.
@@ -50,7 +58,7 @@ A checkpoint is saved every 30 seconds and on graceful shutdown. After a crash, 
 
 The initial fixture is a depot, records office, and repair shop; Mara receives at the office and Ivo works at the shop. Two packages need carrying between them, with deadlines four and six real hours after the world is first created. Names and stops are starter content, not a generated city.
 
-The world is seeded once, transactionally. Restarting preserves changes and does not reset deadlines, restore completed or removed deliveries, or invent activity during downtime. Tables use foreign keys and delivery-state constraints. Future simulation writes must enable SQLite foreign keys on their connections as initialization does.
+The world is seeded once, transactionally. Restarting preserves changes and does not reset deadlines, restore completed or removed deliveries, or invent activity during downtime. Tables use foreign keys and delivery-state constraints; the shared SQLAlchemy session setup enables foreign keys on every connection.
 
 These people are a starting cast, not a fixed population limit. On a late handoff, inspector Ren arrives, records the time, and leaves. His encounter remains in history, but he does not appear as permanent staff on future visits. Changing staff and establishments are future event types, not autonomous city simulation. No diary entry is published by initialization.
 

@@ -1,14 +1,15 @@
 import asyncio
 import os
-import sqlite3
-from contextlib import asynccontextmanager, closing, suppress
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from sqlalchemy import select
 
 from still.clock import checkpoint, resume
+from still.db import session
 from still.world import initialize, snapshot
 
 
@@ -51,8 +52,8 @@ app = FastAPI(
 def health() -> dict[str, str]:
     if app.state.heartbeat.done():
         raise RuntimeError("world clock heartbeat stopped")
-    with closing(sqlite3.connect(app.state.db_path)) as connection:
-        connection.execute("SELECT 1").fetchone()
+    with session(app.state.db_path, readonly=True) as db:
+        db.scalar(select(1))
     return {"status": "ok"}
 
 
