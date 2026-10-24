@@ -34,6 +34,32 @@ class SimulationTest(unittest.TestCase):
         self.assertFalse(delivered["publish"])
         self.assertEqual(snapshot(self.path)["deliveries"][0]["status"], "delivered")
 
+    def test_courier_cannot_leave_a_pickup_to_bounce_to_another_stop(self):
+        self.act({"kind": "move", "place_id": "repair-shop"})
+        self.assertEqual(options(self.path), [
+            {"kind": "collect", "delivery_id": "parcel-1"}, {"kind": "wait"},
+        ])
+        before = snapshot(self.path)
+        with self.assertRaisesRegex(ValueError, "illegal"):
+            self.act({"kind": "move", "place_id": "records-office"}, 1)
+        self.assertEqual(snapshot(self.path), before)
+        self.act({"kind": "collect", "delivery_id": "parcel-1"}, 1)
+        self.assertEqual(options(self.path), [
+            {"kind": "move", "place_id": "records-office"}, {"kind": "wait"},
+        ])
+
+    def test_move_biased_choices_still_complete_deliveries_over_a_day(self):
+        completed = []
+        for hour in range(24):
+            actions = options(self.path)
+            # Reproduce the model's old travel preference, without letting it wait forever.
+            action = next((action for action in actions if action["kind"] == "move"), actions[0])
+            result = self.act(action, hour)
+            completed.extend(event["delivery_id"] for event in result["events"] if event["kind"] == "delivered")
+        self.assertGreaterEqual(len(completed), 6)
+        self.assertIn("parcel-1", completed)
+        self.assertIn("parcel-2", completed)
+
     def test_illegal_action_has_no_effect(self):
         before = snapshot(self.path)
         for action in [

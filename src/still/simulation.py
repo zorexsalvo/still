@@ -32,7 +32,9 @@ def legal_actions(db: Session, hardware: dict | None = None) -> list[dict]:
                 actions.append({"kind": "collect", "delivery_id": parcel.id})
             else:
                 destinations.add(parcel.origin_id)
-        actions.extend({"kind": "move", "place_id": destination} for destination in sorted(destinations))
+        # Finish a pickup at this stop before travelling to another one.
+        if not actions:
+            actions.extend({"kind": "move", "place_id": destination} for destination in sorted(destinations))
     if under_pressure(hardware or {}):
         actions = [action for action in actions if action["kind"] == "deliver"]
     return actions + [{"kind": "wait"}]
@@ -84,7 +86,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         existing = db.scalar(select(Tick).where(Tick.tick_key == tick_key))
         if existing:
             return _result(db, existing.id)
-        last = db.scalar(select(Tick).order_by(Tick.id.desc()).limit(1))
+        last = db.scalar(select(Tick).order_by(Tick.at.desc(), Tick.id.desc()).limit(1))
         if last and at < last.at:
             raise ValueError("tick time cannot run backwards")
         if action not in legal_actions(db, hardware):

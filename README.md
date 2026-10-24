@@ -68,15 +68,15 @@ These people are a starting cast, not a fixed population limit. On a late handof
 
 `still.simulation.options(path)` exposes legal actions: travel toward a queued pickup or carried parcel's destination, collect one parcel, hand it to its recipient, or wait. `tick(path, tick_key, now, action)` validates the action against current state and atomically stores the tick, events, encounters, and resulting state. A repeated tick key returns its original result without applying anything twice; backwards tick times are rejected.
 
-Every tick is stored, even a quiet wait. Deadlines are checked against actual UTC, and a missed deadline is recorded once when next observed, not fabricated as an encounter during downtime. A late recipient still accepts a parcel, with an inspector attending that handoff. Once the queue is finished, another parcel becomes available with a six-hour deadline. Regular encounters accumulate counts and timestamps.
+Every tick is stored, even a quiet wait. Deadlines are checked against actual UTC, and a missed deadline is recorded once when next observed, not fabricated as an encounter during downtime. A late recipient still accepts a parcel, with an inspector attending that handoff. Once the queue is finished, another parcel becomes available with a six-hour deadline. Regular encounters accumulate counts and timestamps. When a pickup is waiting at the current stop, the courier must collect a parcel or wait before travelling elsewhere; it cannot bounce between stops while ignoring their packages.
 
 The initial deterministic writing rule marks first meetings, newly observed missed deadlines, and inspections as candidates for publication. Routine collection, on-time handoff, repeat encounters, and waiting stay silent unless another qualifying event occurred. No score model or random writing gate is used. `still.engine.run_tick` connects a legal choice, simulation consequences, and publication; the hourly worker drives it.
 
 ## Model choices and publication
 
-The model chooses a numbered action using a JSON schema containing only legal indices. Code validates the result again; invalid/unavailable choice output records a quiet wait and a failure, never an invented action. The model receives UTC time and the current hard facts, not ownership of state.
+The model chooses an explicitly labelled, zero-based action index using a JSON schema containing only legal indices. Each option includes its exact `choice` number; the model never has to infer numbering from an unlabelled array. Code validates the result again; invalid/unavailable choice output records a quiet wait and a failure, never an invented action. The model receives UTC time and the current hard facts, not ownership of state.
 
-Qualifying ticks get one writing attempt based on their recorded event facts. Other ticks do not call the writer. Empty, truncated, overlong, non-first-person, reader-addressing, and obvious comparison/emotion output is rejected. These checks are deliberately small heuristics, not a complete semantic proof: factuality and voice still need ongoing sample review. The writer receives no hardware metrics or technical explanation of the premise.
+Qualifying ticks get one writing attempt based on their recorded event facts. Entries may contain one to four sentences; the prompt does not prefer a two-sentence limit, and extra sentences must be supported by facts rather than padding. Other ticks do not call the writer. Empty, truncated, overlong, non-first-person, reader-addressing, and obvious comparison/emotion output is rejected. These checks are deliberately small heuristics, not a complete semantic proof: factuality and voice still need ongoing sample review. The writer receives no hardware metrics or technical explanation of the premise.
 
 Published entries live in `entries`; SQLite triggers prohibit updates and deletes. `publications` records silent, writing, published, or failed outcomes. Duplicate tick keys never trigger fresh inference. Failed or interrupted writing is not retried later; the sim's history still records what happened, while the diary may stay blank. No draft/rewrite workflow, hosted judge, score gate, or markdown export is used.
 
@@ -105,6 +105,18 @@ Open <http://localhost:8000/>. Published entries appear newest first, with UTC d
 The page uses server-rendered HTML and local CSS, with no JavaScript, external fonts, or image requests. Use **Refresh entries** for new text; the **As of** timestamp describes that page load, not a live clock. Empty and recoverable database-error views do not request a generation. Stored text is escaped, and a restrictive content-security policy prevents scripts from running in diary content.
 
 `GET /clock`, `GET /world`, and `/docs` remain local development endpoints. No endpoint accepts simulation actions or diary writes. The viewer remains readable while inference or the worker is unavailable, as long as SQLite remains readable.
+
+## Explicit backdated history
+
+On request, a completed past UTC day can be generated with real Gemma calls:
+
+```sh
+uv run python -m still.backfill --day 2026-10-23
+```
+
+Omit `--day` to use yesterday UTC. This is an explicit exception to live-only publication, not automatic downtime replay. It runs 24 hourly moments in an isolated starting world, then imports the resulting history in one transaction. Any generation/import failure leaves live history unchanged; a day cannot be imported twice. The live courier, packages, encounters, clock, and next scheduled tick are not rewound or replaced.
+
+All imported ticks carry `backfill_ticks` provenance, with the actual generation time and model. Historical machine conditions are unknown and are not fabricated. The viewer sorts by entry time rather than insertion order, and labels these entries **Backdated … not recorded live**. The imported fiction is not evidence of what the real machine or courier did yesterday, and is not used to retroactively rebuild live relationships or delivery state.
 
 ## Tests
 

@@ -35,6 +35,7 @@ main:focus { outline: none; }
 .entry h3 { font: 400 .875rem/1.5 var(--interface-font); margin: 0 0 .65rem; font-variant-numeric: tabular-nums; }
 .entry h3 a { color: var(--muted); }
 .entry-text { font-family: var(--reading-font); font-size: 1.25rem; line-height: 1.7; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.entry-origin { color: var(--muted); font-size: .875rem; margin: .75rem 0 0; }
 .gap { color: var(--muted); font-size: .875rem; margin: 0 0 3rem; padding-block: .25rem; }
 .empty { padding-block: 1rem 3rem; }
 .empty h3, .empty h2 { font-size: 1.125rem; font-weight: 500; margin: 0 0 .75rem; }

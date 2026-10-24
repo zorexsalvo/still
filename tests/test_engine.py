@@ -28,6 +28,10 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(choose("http://local/v1", "still", actions, {}), actions[0])
         schema = complete.call_args.kwargs["response_format"]["json_schema"]["schema"]
         self.assertEqual(schema["properties"]["choice"]["enum"], [0, 1])
+        prompt = json.loads(complete.call_args.args[2][1]["content"])
+        self.assertEqual(prompt["actions"], [
+            {"choice": 0, "action": actions[0]}, {"choice": 1, "action": actions[1]},
+        ])
         for value in [True, -1, 2, "0", None]:
             complete.return_value = json.dumps({"choice": value})
             with self.subTest(value=value), self.assertRaises(ValueError):

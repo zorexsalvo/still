@@ -140,6 +140,14 @@ class Entry(Base):
     text: Mapped[str] = mapped_column(Text)
 
 
+class BackfillTick(Base):
+    __tablename__ = "backfill_ticks"
+    tick_id: Mapped[int] = mapped_column(ForeignKey("ticks.id"), primary_key=True)
+    day: Mapped[str] = mapped_column(Text)
+    generated_at: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+
+
 class Arrival(Base):
     __tablename__ = "arrivals"
     tick_id: Mapped[int] = mapped_column(ForeignKey("ticks.id"), primary_key=True)

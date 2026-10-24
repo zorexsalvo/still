@@ -17,7 +17,8 @@ Never explain being software or describe hardware metrics.
 Use only the supplied facts. Do not invent names, conversations, or events.
 Do not add scenery, sounds, weather, preferences, or actions absent from the facts.
 Keep the facts' concrete nouns. This is a factual note, not creative writing.
-Prefer one or two sentences. Do not use the word 'like'.
+Let the supplied facts determine the length, up to four sentences. Do not pad.
+Do not use the word 'like'.
 Output only the entry. Plain and mundane is fine; vague is not."""
 
 MOMENT = """I carried a package to the records office. The usual receptionist was absent.

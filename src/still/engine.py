@@ -27,12 +27,15 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
     }
     text = complete(base_url, model, [
         {"role": "system", "content": (
-            "You are a courier deciding your next action. Choose one numbered legal action. "
+            "You are a courier deciding your next action. Each legal action has an explicit choice index. "
+            "Return that exact zero-based index: 0 means the first action, not 1. "
             "Try to finish outstanding deliveries before their deadlines. "
             "Do not wait without a reason. The simulation, not you, decides consequences. "
             "Return only a JSON object containing the integer choice."
         )},
-        {"role": "user", "content": json.dumps({"state": state, "actions": actions})},
+        {"role": "user", "content": json.dumps({"state": state, "actions": [
+            {"choice": index, "action": action} for index, action in enumerate(actions)
+        ]})},
     ], response_format={"type": "json_schema", "json_schema": {
         "name": "courier_choice", "strict": True, "schema": schema,
     }})

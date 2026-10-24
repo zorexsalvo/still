@@ -63,6 +63,15 @@ class ViewerTest(unittest.TestCase):
         self.assertIn(f'href="/?before={cursor}"', diary(self.path, now=self.now).body.decode())
         self.assertIn("Earlier entries", diary(self.path, cursor, now=self.now).body.decode())
 
+    def test_late_inserted_history_uses_time_order_and_stable_cursor_ties(self):
+        self.add("I wrote the first live entry.")
+        self.add("I wrote yesterday's entry.", at=self.now - timedelta(days=1))
+        self.add("I wrote another live entry.")
+        self.assertEqual([row["id"] for row in published(self.path)], [3, 1, 2])
+        self.assertEqual([row["id"] for row in published(self.path, 3)], [1, 2])
+        self.assertEqual([row["id"] for row in published(self.path, 1)], [2])
+        self.assertEqual(published(self.path, 99999), [])
+
     def test_only_complete_blank_utc_dates_are_counted(self):
         self.add("I met Ivo.", at=self.now - timedelta(days=4))
         self.add("I went back.", at=self.now - timedelta(days=1))

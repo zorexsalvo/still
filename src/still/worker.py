@@ -82,7 +82,7 @@ def prepare(path: Path) -> None:
             state.active_tick_key = None
             state.next_tick_at = timestamp(now + REST)
         elif state is None:
-            last = db.scalar(select(Tick).order_by(Tick.id.desc()).limit(1))
+            last = db.scalar(select(Tick).order_by(Tick.at.desc(), Tick.id.desc()).limit(1))
             due = datetime.fromisoformat(last.at) + REST if last else now
             db.add(WorkerState(id=1, next_tick_at=timestamp(due)))
 

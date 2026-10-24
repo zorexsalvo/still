@@ -16,7 +16,7 @@ A local model writes a small life as it happens. Readers observe; they cannot re
 
 ## Operating Context
 
-World time follows real UTC. A worker completes one tick, then rests one real hour. Entries are occasional, immediately published, and immutable. Blank periods are part of the chronicle, not missing content to fill.
+World time follows real UTC. A worker completes one tick, then rests one real hour. Entries are occasional, immediately published, and immutable. Blank periods are part of the live chronicle, not missing content to fill. The user later authorized explicitly backdated history starting October 23 UTC: it must be labelled as generated later and must not rewind or replace the live world.
 
 ## Capabilities and Constraints
 

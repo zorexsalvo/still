@@ -55,6 +55,8 @@ Flat. Thin horizontal rules separate the header and footer; entries have neither
 
 Entry dates are underlined permalink headings. Earlier-page and refresh links remain visibly interactive; hover increases underline thickness. Keyboard focus uses a 2px link-colored outline with 5px offset. A skip link appears on focus. There are no forms, icon controls, loading animations, or client-side scripts.
 
+Explicitly backdated entries carry a secondary-text provenance line below their unchanged prose, identifying their actual generation time and stating that they were not recorded live.
+
 The empty and recoverable error views retain the document frame. Blank-date counts describe complete UTC dates, not simulated events or inferred mood.
 
 ## Do's and Don'ts

@@ -6,11 +6,11 @@ from html import escape
 from pathlib import Path
 
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 
 from still.db import as_dict, session
-from still.models import Entry
+from still.models import BackfillTick, Entry
 
 
 PAGE_SIZE = 50
@@ -24,11 +24,16 @@ HEADERS = {
 
 
 def published(path: Path, before: int | None = None) -> list[dict]:
-    query = select(Entry).order_by(Entry.id.desc()).limit(PAGE_SIZE + 1)
-    if before is not None:
-        query = query.where(Entry.id < before)
+    query = select(Entry, BackfillTick.generated_at).outerjoin(
+        BackfillTick, BackfillTick.tick_id == Entry.tick_id
+    ).order_by(Entry.at.desc(), Entry.id.desc()).limit(PAGE_SIZE + 1)
     with session(path, readonly=True) as db:
-        return [as_dict(entry) for entry in db.scalars(query)]
+        if before is not None:
+            cursor = db.get(Entry, before)
+            if cursor is None:
+                return []
+            query = query.where(tuple_(Entry.at, Entry.id) < (cursor.at, cursor.id))
+        return [{**as_dict(entry), "backdated_at": generated_at} for entry, generated_at in db.execute(query)]
 
 
 def _utc(value: str) -> datetime:
@@ -87,7 +92,11 @@ def diary(path: Path, before: int | None = None, *, now: datetime | None = None)
                 identifier = entry["id"]
                 content += f'''<article class="entry" id="entry-{identifier}" aria-labelledby="date-{identifier}">
 <h3 id="date-{identifier}"><a href="#entry-{identifier}"><time datetime="{at.isoformat()}">{at:%d %B %Y · %H:%M} UTC</time></a></h3>
-<p class="entry-text">{escape(entry["text"])}</p></article>'''
+<p class="entry-text">{escape(entry["text"])}</p>'''
+                if entry["backdated_at"]:
+                    generated = _utc(entry["backdated_at"])
+                    content += f'<p class="entry-origin">Backdated · generated {generated:%d %B %Y · %H:%M} UTC, not recorded live.</p>'
+                content += '</article>'
                 if index + 1 < len(entries):
                     content += _gap(at, _utc(entries[index + 1]["at"]))
             if len(entries) > PAGE_SIZE:
