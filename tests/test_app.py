@@ -3,10 +3,11 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
-from still import app, health, lifespan
+from still import app, health, lifespan, world
 
 
 class AppTest(unittest.TestCase):
@@ -14,14 +15,16 @@ class AppTest(unittest.TestCase):
         async def check(path):
             async with lifespan(app):
                 self.assertEqual(health(), {"status": "ok"})
-                with sqlite3.connect(path) as connection:
+                self.assertEqual(world()["courier"]["place_id"], "depot")
+                self.assertEqual(len(world()["deliveries"]), 2)
+                with closing(sqlite3.connect(path)) as connection, connection:
                     self.assertEqual(
                         connection.execute("PRAGMA journal_mode").fetchone()[0], "wal"
                     )
                     connection.execute("CREATE TABLE persistence_test (value TEXT)")
                     connection.execute("INSERT INTO persistence_test VALUES ('kept')")
             async with lifespan(app):
-                with sqlite3.connect(path) as connection:
+                with closing(sqlite3.connect(path)) as connection:
                     self.assertEqual(
                         connection.execute("SELECT value FROM persistence_test").fetchone(),
                         ("kept",),

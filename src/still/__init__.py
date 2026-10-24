@@ -9,6 +9,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from still.clock import checkpoint, resume
+from still.world import initialize, snapshot
 
 
 async def heartbeat(path: Path) -> None:
@@ -22,7 +23,9 @@ async def heartbeat(path: Path) -> None:
 async def lifespan(app: FastAPI):
     path = Path(os.environ.get("STILL_DB_PATH", "data/still.sqlite3"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    resume(path, datetime.now(UTC))
+    now = datetime.now(UTC)
+    initialize(path, now)
+    resume(path, now)
     app.state.db_path = path
     task = asyncio.create_task(heartbeat(path))
     app.state.heartbeat = task
@@ -56,6 +59,11 @@ def health() -> dict[str, str]:
 @app.get("/clock")
 def clock() -> dict[str, str]:
     return {"timezone": "UTC", "now": datetime.now(UTC).isoformat()}
+
+
+@app.get("/world")
+def world() -> dict:
+    return snapshot(app.state.db_path)
 
 
 def main() -> None:

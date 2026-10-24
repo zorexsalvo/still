@@ -1,6 +1,6 @@
 # Still
 
-A courier's diary, written by a local model. Initial scaffold: FastAPI and persistent SQLite; simulation and model integration are not implemented yet.
+A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. Simulation and continuous model integration are not implemented yet.
 
 ## Docker (Mac first)
 
@@ -43,6 +43,16 @@ On restart, time since the last checkpoint is recorded in SQLite's `downtime` ta
 These classifications apply only to downtime. Running the app at night does not prevent events.
 
 A checkpoint is saved every 30 seconds and on graceful shutdown. After a crash, up to 30 seconds of live time may be classified as downtime. A backwards clock at startup is rejected rather than silently rewriting history. Run only one app instance against a given database; process supervision, not multiple workers, owns this clock until the simulation worker is introduced.
+
+## Starting world
+
+`GET /world` returns the courier, places, people, and delivery queue, with an explicit UTC label. It is read-only and never triggers generation.
+
+The initial fixture is a depot, records office, and repair shop; Mara receives at the office and Ivo works at the shop. Two packages need carrying between them, with deadlines four and six real hours after the world is first created. Names and stops are starter content, not a generated city.
+
+The world is seeded once, transactionally. Restarting preserves changes and does not reset deadlines, restore completed or removed deliveries, or invent activity during downtime. Tables use foreign keys and delivery-state constraints. Future simulation writes must enable SQLite foreign keys on their connections as initialization does.
+
+These people are a starting cast, not a fixed population limit. Event-bound arrivals, changing staff, and establishment changes will be introduced by the simulation; those mechanics are not implemented yet. No diary entry is published by this setup.
 
 ## Tests
 
