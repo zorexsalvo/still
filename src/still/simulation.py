@@ -13,7 +13,7 @@ from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalF
 from still.world import delivery_description
 
 
-WRITING_EVENTS = {"first_meeting", "deadline_missed", "inspection", "file_recovered", "file_completed", "personal_visit"}
+WRITING_EVENTS = {"first_meeting", "delivered", "deadline_missed", "inspection", "file_recovered", "file_completed", "personal_visit"}
 ACTIVE_STATUSES = ("queued", "carried")
 FILE_RECOVERY = (
     ("path: /archive/landing\nowner: [unreadable]\nkeep: [unreadable]\n",
@@ -27,7 +27,7 @@ FILE_VISITS = (
     "I showed Ivo my {name} file. He could not read its damaged lines. He handed it back.",
     "I showed Ivo /archive/landing in {name}. He could not find the path in his index. I kept my copy.",
     "I showed Ivo the empty owner field in {name}. He asked for the missing name. I had only the empty field.",
-    "I brought the recovered {name} to Ivo. He looked at the empty owner field. He handed it back without filling it in.",
+    "I showed Ivo the file I'd recovered. He looked at the empty owner field. He handed it back without filling it in.",
 )
 
 
@@ -144,7 +144,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         elif kind == "deliver":
             parcel = db.get(Delivery, action["delivery_id"])
             parcel.status = "delivered"
-            _event(db, tick_id, "delivered", f"{parcel.recipient.name} accepted the {delivery_description(parcel.id)} and signed for it.",
+            _event(db, tick_id, "delivered", f"I delivered the {delivery_description(parcel.id)} to {parcel.recipient.name}. {parcel.recipient.name} accepted it and signed for it.",
                    delivery_id=parcel.id, recipient_id=parcel.recipient_id)
             if at > parcel.due_at:
                 inspector = db.get(Person, "inspector-ren")

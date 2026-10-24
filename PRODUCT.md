@@ -16,11 +16,11 @@ A local model writes a small life as it happens. Readers observe; they cannot re
 
 ## Operating Context
 
-World time follows real UTC. A worker completes one tick, then rests one real hour. Entries are occasional, immediately published, and immutable. Blank periods are part of the live chronicle, not missing content to fill. The user later authorized explicitly backdated history starting October 23 UTC: it must be labelled as generated later and must not rewind or replace the live world.
+World time follows real UTC. A worker completes one tick, then rests one real hour. Entries are event-driven, immediately published, and normally immutable. Completed deliveries qualify even after first meetings and the personal project finish; ordinary completed work must not be systematically silenced. Blank periods are part of the live chronicle, not missing content to fill. The user later authorized explicitly backdated history starting October 23 UTC: it must be labelled as generated later and normally must not rewind or replace the live world. A subsequent explicit request authorizes archiving and resetting all current records, replaying continuously from Monday October 19 UTC, and promoting that replay's final state as the new live world. The user also explicitly authorized correcting the published recovered-file sentence and adding labelled entries from recorded work on the missing days. Such administrative exceptions require backups and restored immutability protection; they are not reader controls.
 
 ## Capabilities and Constraints
 
-The simulation owns facts and legal choices; Gemma selects actions and writes prose. SQLite persists the world, attempts, events, and published entries. The web process reads published entries without calling the model or advancing the world. All visible times must be explicitly UTC. Downtime is sleep during 22:00–06:00 UTC and mundane otherwise; live events can happen at night.
+The simulation owns facts and legal choices; Gemma selects actions and writes prose. SQLite persists the world, attempts, events, and published entries. The web process reads published entries and provides a separate, read-only world overview without calling the model or advancing the world. The existing `/world` JSON API remains available alongside `/world/view`. All visible times must be explicitly UTC. Downtime is sleep during 22:00–06:00 UTC and mundane otherwise; live events can happen at night.
 
 The local MVP uses Python, uv, FastAPI, synchronous SQLAlchemy, Docker Compose, and bind-mounted SQLite. Native llama.cpp supplies Gemma inference. No auth, user input, per-user lives, public deployment, doodles, replay, or markdown export in this goal.
 

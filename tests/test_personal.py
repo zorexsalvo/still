@@ -51,6 +51,8 @@ class PersonalLifeTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.act({"kind": "restore_file"}, 3)
         self.assertEqual(snapshot(self.path)["personal_file"], personal)
+        visit = self.act({"kind": "visit", "person_id": "ivo"}, 4)
+        self.assertIn("I showed Ivo the file I'd recovered.", " ".join(event["text"] for event in visit["events"]))
 
     def test_nonwork_visits_react_to_progress_and_cannot_loop(self):
         visit = {"kind": "visit", "person_id": "ivo"}

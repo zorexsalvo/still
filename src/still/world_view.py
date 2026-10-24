@@ -1,0 +1,125 @@
+"""Read-only world overview, separate from the model and worker."""
+
+import logging
+from datetime import UTC, datetime
+from html import escape
+from pathlib import Path
+
+from fastapi.responses import HTMLResponse
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
+
+from still.db import session
+from still.models import (
+    Arrival, BackfillTick, Courier, Delivery, Encounter, Event,
+    PersonalFile, Person, Place, Tick, WorkerState, WorldClock,
+)
+from still.viewer import _page, _utc
+from still.world import delivery_description
+
+
+log = logging.getLogger(__name__)
+
+
+def _time(value: str) -> str:
+    at = _utc(value)
+    return f'<time datetime="{at.isoformat()}">{at:%d %b %Y · %H:%M} UTC</time>'
+
+
+def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
+    now = now or datetime.now(UTC)
+    try:
+        with session(path, readonly=True) as db:
+            courier = db.get(Courier, 1)
+            if courier is None:
+                raise ValueError("world is not initialized")
+            places = list(db.scalars(select(Place).order_by(Place.id)))
+            names = {place.id: place.name for place in places}
+            people = list(db.scalars(select(Person).order_by(Person.name)))
+            occasional = set(db.scalars(select(Arrival.person_id).distinct()))
+            encounters = {row.person_id: row for row in db.scalars(select(Encounter))}
+            personal = db.get(PersonalFile, 1)
+            worker = db.get(WorkerState, 1)
+            clock = db.get(WorldClock, 1)
+            carried = db.scalar(select(Delivery).where(Delivery.status == "carried"))
+            deliveries = list(db.scalars(select(Delivery).order_by(
+                Delivery.created_at.desc(), Delivery.id
+            ).limit(50)))
+            activity = list(db.execute(select(Event, Tick.at, BackfillTick.generated_at).join(
+                Tick, Tick.id == Event.tick_id
+            ).outerjoin(BackfillTick, BackfillTick.tick_id == Tick.id).where(
+                Event.kind != "waited"
+            ).order_by(Tick.at.desc(), Event.id.desc()).limit(8)))
+            parts = [
+                '<div class="reading-heading"><h2>World</h2><a href="/world/view">Refresh world</a></div>',
+                '<p class="world-note">The recorded state behind the diary. Nothing here asks for a new entry.</p>',
+                '<section class="world-section"><h3>Courier</h3><dl class="world-facts">',
+                f'<dt>Location</dt><dd>{escape(names.get(courier.place_id, courier.place_id))}</dd>',
+                f'<dt>Carrying</dt><dd>{escape(delivery_description(carried.id)) if carried else "Nothing"}</dd>',
+                f'<dt>Life started</dt><dd>{_time(courier.started_at)}</dd>',
+                f'<dt>Next tick</dt><dd>{"In progress" if worker and worker.active_tick_key else (_time(worker.next_tick_at) if worker else "Not scheduled yet")}</dd>',
+                f'<dt>Last check-in</dt><dd>{_time(clock.last_seen) if clock else "Not recorded yet"}</dd>',
+                '</dl>',
+            ]
+            if clock is None:
+                parts.append('<p class="world-note">The worker has not checked in yet.</p>')
+            elif not 0 <= (now - _utc(clock.last_seen)).total_seconds() <= 90:
+                parts.append('<p class="world-note">The worker has not checked in recently. Showing its last recorded state.</p>')
+            parts.append('</section><section class="world-section"><h3>Personal file</h3>')
+            if personal:
+                state = "Recovered" if personal.progress == 3 else f"{personal.progress} of 3 lines recovered"
+                shared = "Latest state shown to Ivo" if personal.shown_progress == personal.progress else "Not yet shown to Ivo in this state"
+                parts.extend([
+                    f'<figure class="world-file"><figcaption><strong>{escape(personal.name)}</strong> · {state}</figcaption>',
+                    f'<pre>{escape(personal.contents)}</pre></figure><p class="world-note">{shared}.</p>',
+                ])
+            else:
+                parts.append('<p class="world-note">No personal file has been started.</p>')
+            parts.append('</section><section class="world-section"><h3>Places and people</h3><ul class="world-places" role="list">')
+            for place in places:
+                parts.append(f'<li><h4>{escape(place.name)}</h4>')
+                regulars = [person for person in people if person.place_id == place.id and person.id not in occasional]
+                if not regulars:
+                    parts.append('<p class="world-note">No regulars recorded here.</p>')
+                for person in regulars:
+                    parts.append(f'<p><strong>{escape(person.name)}</strong> · {escape(person.role)}</p>')
+                    encounter = encounters.get(person.id)
+                    if encounter:
+                        parts.append(f'<p class="world-note">{encounter.count} encounters. Last seen {_time(encounter.last_at)}.</p>')
+                parts.append('</li>')
+            parts.append('</ul>')
+            visitors = [person for person in people if person.id in occasional]
+            if visitors:
+                parts.append('<h4>Occasional visitors</h4><ul class="world-visitors">')
+                for person in visitors:
+                    parts.append(f'<li>{escape(person.name)} · {escape(person.role)}. Not permanent staff.</li>')
+                parts.append('</ul>')
+            parts.append('</section><section class="world-section"><h3>Deliveries</h3>')
+            if deliveries:
+                parts.append('<p class="world-note table-hint">Scroll sideways for status and due times.</p><div class="table-scroll" role="region" aria-label="Deliveries, scroll horizontally if needed" tabindex="0"><table><caption>Up to 50 most recent deliveries</caption><thead><tr><th scope="col">Contents</th><th scope="col">Route</th><th scope="col">Status</th><th scope="col">Due UTC</th></tr></thead><tbody>')
+                status_labels = {"queued": "Queued", "carried": "Being carried", "delivered": "Delivered", "returned": "Returned", "lost": "Lost"}
+                for delivery in deliveries:
+                    parts.append(
+                        f'<tr><td>{escape(delivery_description(delivery.id))}</td>'
+                        f'<td>{escape(names.get(delivery.origin_id, delivery.origin_id))}<br>to {escape(names.get(delivery.destination_id, delivery.destination_id))}</td>'
+                        f'<td>{escape(status_labels.get(delivery.status, delivery.status))}</td><td>{_time(delivery.due_at)}</td></tr>'
+                    )
+                parts.append('</tbody></table></div>')
+            else:
+                parts.append('<p class="world-note">No deliveries recorded.</p>')
+            parts.append('</section><section class="world-section"><h3>Recent changes</h3>')
+            if activity:
+                parts.append('<ol class="world-activity" role="list">')
+                for event, at, generated in activity:
+                    parts.append(f'<li>{_time(at)}<p>{escape(event.facts["text"])}</p>')
+                    if generated:
+                        parts.append(f'<p class="world-note">Backdated · generated {_time(generated)}, not recorded live.</p>')
+                    parts.append('</li>')
+                parts.append('</ol>')
+            else:
+                parts.append('<p class="world-note">No changes recorded yet. Quiet ticks do not appear here.</p>')
+            parts.append('</section>')
+            return _page("".join(parts), now, world=True)
+    except (SQLAlchemyError, ValueError):
+        log.exception("Unable to read the world")
+        return _page('<section class="empty"><h2>The world could not be loaded.</h2><p>Please try again in a moment.</p><a href="/world/view">Try again</a></section>', now, status=503, world=True)

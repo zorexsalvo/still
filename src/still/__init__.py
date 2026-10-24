@@ -13,6 +13,7 @@ from still.db import session
 from still.models import Courier
 from still.viewer import diary
 from still.world import snapshot
+from still.world_view import world_page
 
 
 @asynccontextmanager
@@ -55,6 +56,11 @@ def clock() -> dict[str, str]:
 @app.get("/world")
 def world() -> dict:
     return snapshot(app.state.db_path)
+
+
+@app.get("/world/view", response_class=HTMLResponse)
+def world_view() -> HTMLResponse:
+    return world_page(app.state.db_path)
 
 
 def main() -> None:

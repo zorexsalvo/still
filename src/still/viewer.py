@@ -51,24 +51,30 @@ def _gap(newer: datetime, older: datetime) -> str:
     return f'<p class="gap">{days} full UTC {unit} without an entry.</p>'
 
 
-def _page(content: str, now: datetime, *, status: int = 200) -> HTMLResponse:
+def _page(content: str, now: datetime, *, status: int = 200, world: bool = False) -> HTMLResponse:
+    section = "world" if world else "diary"
+    title = "Still. the world" if world else "Still. a courier’s diary"
+    diary_current = '' if world else ' aria-current="page"'
+    world_current = ' aria-current="page"' if world else ''
+    footer = "Read-only. Viewing the world never advances it." if world else "Entries are occasional. Refreshing does not ask for one."
     return HTMLResponse(f"""<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Still — a courier’s diary</title>
+  <title>{title}</title>
   <meta name="description" content="One courier’s diary, written as life happens. All times UTC.">
   <link rel="stylesheet" href="/static/diary.css">
 </head>
 <body>
-  <a class="skip-link" href="#diary">Skip to diary</a>
+  <a class="skip-link" href="#{section}">Skip to {section}</a>
   <header class="page-header">
     <div><h1><a href="/">Still</a></h1><p>A courier’s diary.</p></div>
     <p class="clock">All times UTC<br>As of <time datetime="{now.isoformat()}">{now:%d %b %Y · %H:%M} UTC</time></p>
   </header>
-  <main id="diary" tabindex="-1">{content}</main>
-  <footer class="page-footer"><p>Entries are occasional. Refreshing does not ask for one.</p></footer>
+  <nav class="section-nav" aria-label="Sections"><a href="/"{diary_current}>Diary</a><a href="/world/view"{world_current}>World</a></nav>
+  <main id="{section}" tabindex="-1">{content}</main>
+  <footer class="page-footer"><p>{footer}</p></footer>
 </body>
 </html>""", status_code=status, headers=HEADERS)
 

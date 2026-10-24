@@ -21,6 +21,8 @@ Use only the supplied facts. Do not invent names, conversations, or events.
 Do not add scenery, sounds, weather, preferences, or actions absent from the facts.
 Keep the facts' concrete nouns. This is a factual note, not creative writing.
 Let the supplied facts determine the length. Do not pad or list every action.
+Never add generic status closings such as 'The operation completed' or 'The transfer is complete'.
+Earlier recorded pickup or travel can supply concrete background instead of a closing summary.
 Anchor the entry in the current moment; earlier recorded facts are background, not new events.
 Do not use the word 'like'.
 Output only the entry. Plain and mundane is fine; vague is not."""

@@ -47,6 +47,37 @@ main:focus { outline: none; }
 .skip-link { position: absolute; top: 1rem; left: 1.5rem; padding: .5rem; background: var(--ground); transform: translateY(-200%); }
 .skip-link:focus { transform: translateY(0); }
 
+.section-nav { max-width: 45rem; margin-inline: auto; display: flex; gap: 1.5rem; padding-top: .75rem; }
+.section-nav a { display: inline-block; padding-block: .75rem; }
+.section-nav a[aria-current="page"] { color: var(--ink); font-weight: 600; text-decoration-thickness: 2px; }
+#world { overflow-wrap: anywhere; }
+#world .reading-heading h2 { font-size: 1.5rem; }
+.world-section { border-top: 1px solid var(--rule); padding-block: 1.5rem; }
+.world-section h3 { margin: 0 0 1rem; font-size: 1.125rem; font-weight: 600; }
+.world-section h4 { margin: 0 0 .35rem; font-size: 1rem; font-weight: 600; }
+.world-note { color: var(--muted); font-size: .875rem; max-width: 70ch; margin: .5rem 0 1rem; }
+.world-facts { display: grid; grid-template-columns: minmax(6.5rem, 1fr) minmax(0, 2fr); gap: .75rem 1rem; margin: 0; }
+.world-facts dt { color: var(--muted); }
+.world-facts dd { margin: 0; }
+.world-facts time, .world-activity time { font-variant-numeric: tabular-nums; font-size: .875rem; }
+.world-file { margin: 0; }
+.world-file figcaption { font-size: .875rem; }
+.world-file pre { border: 1px solid var(--rule); padding: 1rem; font: .875rem/1.6 ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.world-places { list-style: none; padding: 0; margin: 0; }
+.world-places > li { padding-block: .75rem; }
+.world-places p { margin: .35rem 0; }
+.world-visitors { padding-left: 1.25rem; }
+.table-hint { display: none; }
+.table-scroll { max-width: 100%; overflow-x: auto; scrollbar-color: var(--muted) var(--ground); }
+.table-scroll:focus-visible { outline: 2px solid var(--link); outline-offset: 5px; }
+.table-scroll table { width: 100%; min-width: 42rem; border-collapse: collapse; font-size: .875rem; }
+.table-scroll caption { text-align: left; color: var(--muted); margin-bottom: .75rem; }
+.table-scroll th, .table-scroll td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); padding: .75rem .75rem .75rem 0; }
+.table-scroll th { font-weight: 600; }
+.world-activity { list-style: none; padding: 0; margin: 0; }
+.world-activity li { margin-bottom: 1.5rem; }
+.world-activity p { margin: .35rem 0; }
+
 @media (max-width: 36rem) {
   body { padding: 2.5rem 1.25rem 1.5rem; }
   .page-header { display: block; padding-bottom: 1.5rem; }
@@ -54,4 +85,5 @@ main:focus { outline: none; }
   h1 { font-size: 2.5rem; }
   main { padding-top: 1.5rem; }
   .reading-heading { margin-bottom: 2rem; }
+  .table-hint { display: block; }
 }

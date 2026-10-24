@@ -31,7 +31,8 @@ class SimulationTest(unittest.TestCase):
         self.assertNotIn({"kind": "collect", "delivery_id": "parcel-2"}, options(self.path))
         self.act({"kind": "move", "place_id": "records-office"}, 2)
         delivered = self.act({"kind": "deliver", "delivery_id": "parcel-1"}, 3)
-        self.assertFalse(delivered["publish"])
+        self.assertTrue(delivered["publish"])
+        self.assertIn("I delivered the corrected directory index to Mara.", delivered["events"][0]["text"])
         self.assertEqual(snapshot(self.path)["deliveries"][0]["status"], "delivered")
 
     def test_courier_cannot_leave_a_pickup_to_bounce_to_another_stop(self):
@@ -57,6 +58,8 @@ class SimulationTest(unittest.TestCase):
             # Reproduce the model's old travel preference, without letting it wait forever.
             action = next((action for action in actions if action["kind"] == "move"), actions[0])
             result = self.act(action, hour)
+            if any(event["kind"] == "delivered" for event in result["events"]):
+                self.assertTrue(result["publish"])
             completed.extend(event["delivery_id"] for event in result["events"] if event["kind"] == "delivered")
         self.assertEqual(len(completed), 3)  # Initial round, then one new delivery next UTC day.
         self.assertIn("parcel-1", completed)
