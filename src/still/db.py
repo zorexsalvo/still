@@ -7,7 +7,7 @@ from sqlalchemy import URL, create_engine, event, inspect
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
-from still.models import Base
+from still.models import Base, WorkerLease
 
 
 @contextmanager
@@ -50,6 +50,13 @@ def create_tables(current: Session) -> None:
             f"CREATE TRIGGER IF NOT EXISTS entries_no_{action.lower()} BEFORE {action} ON entries "
             "BEGIN SELECT RAISE(ABORT, 'published entries are immutable'); END"
         )
+
+
+def require_owner(current: Session, owner: str | None) -> None:
+    if owner is not None:
+        lease = current.get(WorkerLease, 1)
+        if lease is None or lease.owner != owner:
+            raise RuntimeError("Still worker lost its database lease")
 
 
 def as_dict(row: Base) -> dict:

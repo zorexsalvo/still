@@ -8,8 +8,8 @@ from urllib.error import URLError
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert
 
-from still.db import as_dict, session
-from still.models import Entry, Publication, Tick
+from still.db import as_dict, require_owner, session
+from still.models import Entry, Publication, Tick, WorkerLease
 from still.prose import complete, generate
 from still.simulation import options, tick
 from still.world import snapshot
@@ -51,7 +51,8 @@ def _entry(db, tick_id):
 
 
 def run_tick(path: Path, tick_key: str, base_url: str, model: str,
-             *, now: datetime | None = None, hardware: dict | None = None) -> dict:
+             *, now: datetime | None = None, hardware: dict | None = None,
+             owner: str | None = None) -> dict:
     with session(path, readonly=True) as db:
         existing = db.scalar(select(Tick.id).where(Tick.tick_key == tick_key))
         if existing is not None:
@@ -61,14 +62,16 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
     try:
         state = snapshot(path)
         state["now"] = (now or datetime.now(UTC)).isoformat()
-        action = choose(base_url, model, options(path), state)
+        actions = options(path, hardware)
+        action = actions[0] if len(actions) == 1 else choose(base_url, model, actions, state)
     except MODEL_ERRORS as failure:
         error = f"choice failed: {failure}"[:1000]
         action = {"kind": "wait"}
-    result = tick(path, tick_key, now or datetime.now(UTC), action, hardware)
+    result = tick(path, tick_key, now or datetime.now(UTC), action, hardware, owner=owner)
     tick_id = result["id"]
     status = "failed" if error else ("writing" if result["publish"] else "silent")
     with session(path, immediate=True) as db:
+        require_owner(db, owner)
         claimed = db.execute(insert(Publication).values(
             tick_id=tick_id, status=status, error=error
         ).on_conflict_do_nothing(index_elements=[Publication.tick_id])).rowcount
@@ -81,11 +84,18 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
     except MODEL_ERRORS as failure:
         error = f"writing failed: {failure}"[:1000]
         with session(path, immediate=True) as db:
+            require_owner(db, owner)
             publication = db.get(Publication, tick_id)
             publication.status = "failed"
             publication.error = error
         return {"tick_id": tick_id, "entry": None, "error": error}
     with session(path, immediate=True) as db:
+        require_owner(db, owner)
+        publication = db.get(Publication, tick_id)
+        if publication.status != "writing":
+            return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": "publication no longer active"}
+        if owner is not None:
+            db.get(WorkerLease, 1).heartbeat_at = datetime.now(UTC).isoformat(timespec="microseconds")
         db.add(Entry(tick_id=tick_id, at=result["at"], text=text))
-        db.get(Publication, tick_id).status = "published"
+        publication.status = "published"
         return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": None}

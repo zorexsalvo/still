@@ -1,36 +1,49 @@
 import asyncio
 import os
-import sqlite3
 import tempfile
 import unittest
-from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
+
 from still import app, health, lifespan, world
+from still.db import session
+from still.models import Downtime, Tick, WorldClock
+from still.worker import prepare
 
 
 class AppTest(unittest.TestCase):
-    def test_database_survives_app_restart(self):
+    def test_viewer_restart_does_not_change_world_or_worker_clock(self):
         async def check(path):
-            async with lifespan(app):
-                self.assertEqual(health(), {"status": "ok"})
-                self.assertEqual(world()["courier"]["place_id"], "depot")
-                self.assertEqual(len(world()["deliveries"]), 2)
-                with closing(sqlite3.connect(path)) as connection, connection:
-                    self.assertEqual(
-                        connection.execute("PRAGMA journal_mode").fetchone()[0], "wal"
-                    )
-                    connection.execute("CREATE TABLE persistence_test (value TEXT)")
-                    connection.execute("INSERT INTO persistence_test VALUES ('kept')")
-            async with lifespan(app):
-                with closing(sqlite3.connect(path)) as connection:
-                    self.assertEqual(
-                        connection.execute("SELECT value FROM persistence_test").fetchone(),
-                        ("kept",),
-                    )
+            with session(path, readonly=True) as db:
+                before = db.get(WorldClock, 1).last_seen
+            for _ in range(2):
+                async with lifespan(app):
+                    self.assertEqual(health(), {"status": "ok"})
+                    self.assertEqual(world()["courier"]["place_id"], "depot")
+                    self.assertEqual(len(world()["deliveries"]), 2)
+            with session(path, readonly=True) as db:
+                self.assertEqual(db.get(WorldClock, 1).last_seen, before)
+                self.assertIsNone(db.scalar(select(Tick)))
+                self.assertIsNone(db.scalar(select(Downtime)))
 
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "data" / "still.sqlite3"
+            path = Path(directory) / "still.sqlite3"
             with patch.dict(os.environ, {"STILL_DB_PATH": str(path)}):
+                with patch("still.worker.utcnow", return_value=datetime(2026, 10, 24, 12, tzinfo=UTC)):
+                    prepare(path)
                 asyncio.run(check(path))
+
+    def test_viewer_does_not_initialize_a_missing_database(self):
+        async def check():
+            async with lifespan(app):
+                self.fail("viewer must not create the database")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "absent.sqlite3"
+            with patch.dict(os.environ, {"STILL_DB_PATH": str(path)}):
+                with self.assertRaises(OperationalError):
+                    asyncio.run(check())
+            self.assertFalse(path.exists())

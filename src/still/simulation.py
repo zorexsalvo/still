@@ -7,15 +7,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from still.clock import timestamp
-from still.db import session
-from still.models import Arrival, Courier, Delivery, Encounter, Event, Person, Place, Tick
+from still.db import require_owner, session
+from still.hardware import under_pressure
+from still.models import Arrival, Courier, Delivery, Encounter, Event, Person, Place, Tick, WorkerLease
 
 
 WRITING_EVENTS = {"first_meeting", "deadline_missed", "inspection"}
 ACTIVE_STATUSES = ("queued", "carried")
 
 
-def legal_actions(db: Session) -> list[dict]:
+def legal_actions(db: Session, hardware: dict | None = None) -> list[dict]:
     place = db.get(Courier, 1).place_id
     carried = db.scalar(select(Delivery).where(Delivery.status == "carried"))
     actions = []
@@ -32,12 +33,14 @@ def legal_actions(db: Session) -> list[dict]:
             else:
                 destinations.add(parcel.origin_id)
         actions.extend({"kind": "move", "place_id": destination} for destination in sorted(destinations))
+    if under_pressure(hardware or {}):
+        actions = [action for action in actions if action["kind"] == "deliver"]
     return actions + [{"kind": "wait"}]
 
 
-def options(path: Path) -> list[dict]:
+def options(path: Path, hardware: dict | None = None) -> list[dict]:
     with session(path, readonly=True) as db:
-        return legal_actions(db)
+        return legal_actions(db, hardware)
 
 
 def _event(db, tick_id, kind, text, *, event_key=None, **facts):
@@ -68,19 +71,23 @@ def _result(db, tick_id):
     }
 
 
-def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict | None = None) -> dict:
+def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict | None = None,
+         *, owner: str | None = None) -> dict:
     """Apply one legal action. Reusing a tick key returns its frozen result."""
     at = timestamp(now)
     if not isinstance(tick_key, str) or not tick_key.strip():
         raise ValueError("tick key must be nonempty")
     with session(path, immediate=True) as db:
+        require_owner(db, owner)
+        if owner is not None:
+            db.get(WorkerLease, 1).heartbeat_at = at
         existing = db.scalar(select(Tick).where(Tick.tick_key == tick_key))
         if existing:
             return _result(db, existing.id)
         last = db.scalar(select(Tick).order_by(Tick.id.desc()).limit(1))
         if last and at < last.at:
             raise ValueError("tick time cannot run backwards")
-        if action not in legal_actions(db):
+        if action not in legal_actions(db, hardware):
             raise ValueError("illegal courier action")
         current = Tick(tick_key=tick_key, at=at, action=action, hardware=hardware or {})
         db.add(current)
@@ -127,7 +134,10 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                        person_id=inspector.id, delivery_id=parcel.id)
                 _encounter(db, tick_id, inspector, parcel.destination.name, at)
         else:
-            _event(db, tick_id, "waited", "I stayed where I was for a while.")
+            if under_pressure(hardware or {}):
+                _event(db, tick_id, "slowed", "Moving was slow. I stayed where I was.")
+            else:
+                _event(db, tick_id, "waited", "I stayed where I was for a while.")
 
         active = db.scalar(select(Delivery.id).where(Delivery.status.in_(ACTIVE_STATUSES)).limit(1))
         if active is None:

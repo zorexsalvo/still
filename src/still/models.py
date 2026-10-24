@@ -70,6 +70,14 @@ class Downtime(Base):
     kind: Mapped[str] = mapped_column(Text)
 
 
+class WorkerLease(Base):
+    __tablename__ = "worker_lease"
+    __table_args__ = (CheckConstraint("id = 1"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner: Mapped[str] = mapped_column(Text)
+    heartbeat_at: Mapped[str] = mapped_column(Text)
+
+
 class WorkerRun(Base):
     __tablename__ = "worker_runs"
     tick_key: Mapped[str] = mapped_column(Text, primary_key=True)

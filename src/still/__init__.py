@@ -1,6 +1,5 @@
-import asyncio
 import os
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,37 +7,20 @@ import uvicorn
 from fastapi import FastAPI
 from sqlalchemy import select
 
-from still.clock import checkpoint, resume
 from still.db import session
-from still.world import initialize, snapshot
-
-
-async def heartbeat(path: Path) -> None:
-    while True:
-        # shortcut: crashes may add up to 30 seconds to downtime; use a supervisor's stop time if needed.
-        await asyncio.sleep(30)
-        checkpoint(path, datetime.now(UTC))
+from still.models import Courier
+from still.world import snapshot
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     path = Path(os.environ.get("STILL_DB_PATH", "data/still.sqlite3"))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(UTC)
-    initialize(path, now)
-    resume(path, now)
+    # Only the worker initializes or advances the world.
+    with session(path, readonly=True) as db:
+        if db.get(Courier, 1) is None:
+            raise RuntimeError("Start the Still worker before the viewer")
     app.state.db_path = path
-    task = asyncio.create_task(heartbeat(path))
-    app.state.heartbeat = task
-    try:
-        yield
-    finally:
-        task.cancel()
-        try:
-            with suppress(asyncio.CancelledError):
-                await task
-        finally:
-            checkpoint(path, datetime.now(UTC))
+    yield
 
 
 app = FastAPI(
@@ -50,8 +32,6 @@ app = FastAPI(
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    if app.state.heartbeat.done():
-        raise RuntimeError("world clock heartbeat stopped")
     with session(app.state.db_path, readonly=True) as db:
         db.scalar(select(1))
     return {"status": "ok"}

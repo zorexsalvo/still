@@ -1,12 +1,37 @@
 services:
-  still:
+  worker:
     build: .
+    image: still:local
+    command: ["python", "-m", "still.worker"]
+    environment:
+      TZ: UTC
+      STILL_DB_PATH: /app/data/still.sqlite3
+      STILL_MODEL_BASE_URL: http://host.docker.internal:8080/v1
+      STILL_MODEL: still
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "python", "-m", "still.worker", "--health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  still:
+    image: still:local
+    pull_policy: never
+    depends_on:
+      worker:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8000:8000"
     environment:
       TZ: UTC
       STILL_DB_PATH: /app/data/still.sqlite3
     volumes:
+      # Read-only SQLite connections still need writable WAL/SHM coordination files.
       - ./data:/app/data
     restart: unless-stopped
     healthcheck:
