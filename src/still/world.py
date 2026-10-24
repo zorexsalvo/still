@@ -38,6 +38,32 @@ SCHEMA = (
         CHECK (origin_id != destination_id),
         CHECK (due_at > created_at)
     )""",
+    """CREATE TABLE IF NOT EXISTS ticks (
+        id INTEGER PRIMARY KEY,
+        tick_key TEXT NOT NULL UNIQUE,
+        at TEXT NOT NULL,
+        action TEXT NOT NULL,
+        hardware TEXT NOT NULL,
+        publish INTEGER NOT NULL DEFAULT 0 CHECK (publish IN (0, 1))
+    )""",
+    """CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY,
+        tick_id INTEGER NOT NULL REFERENCES ticks(id),
+        kind TEXT NOT NULL,
+        facts TEXT NOT NULL,
+        event_key TEXT UNIQUE
+    )""",
+    """CREATE TABLE IF NOT EXISTS encounters (
+        person_id TEXT PRIMARY KEY REFERENCES people(id),
+        first_at TEXT NOT NULL,
+        last_at TEXT NOT NULL,
+        count INTEGER NOT NULL CHECK (count > 0)
+    )""",
+    """CREATE TABLE IF NOT EXISTS arrivals (
+        tick_id INTEGER NOT NULL REFERENCES ticks(id),
+        person_id TEXT NOT NULL REFERENCES people(id),
+        PRIMARY KEY (tick_id, person_id)
+    )""",
 )
 
 

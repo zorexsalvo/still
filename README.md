@@ -1,6 +1,6 @@
 # Still
 
-A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. Simulation and continuous model integration are not implemented yet.
+A courier's diary, written by a local model. Current foundation: FastAPI, persistent SQLite, a UTC world clock, a starting route and delivery queue, and a standalone prose test. Legal simulation actions are implemented; continuous model integration and the worker are not yet connected.
 
 ## Docker (Mac first)
 
@@ -52,7 +52,15 @@ The initial fixture is a depot, records office, and repair shop; Mara receives a
 
 The world is seeded once, transactionally. Restarting preserves changes and does not reset deadlines, restore completed or removed deliveries, or invent activity during downtime. Tables use foreign keys and delivery-state constraints. Future simulation writes must enable SQLite foreign keys on their connections as initialization does.
 
-These people are a starting cast, not a fixed population limit. Event-bound arrivals, changing staff, and establishment changes will be introduced by the simulation; those mechanics are not implemented yet. No diary entry is published by this setup.
+These people are a starting cast, not a fixed population limit. On a late handoff, inspector Ren arrives, records the time, and leaves. His encounter remains in history, but he does not appear as permanent staff on future visits. Changing staff and establishments are future event types, not autonomous city simulation. No diary entry is published by initialization.
+
+## Simulation
+
+`still.simulation.options(path)` exposes legal actions: travel toward a queued pickup or carried parcel's destination, collect one parcel, hand it to its recipient, or wait. `tick(path, tick_key, now, action)` validates the action against current state and atomically stores the tick, events, encounters, and resulting state. A repeated tick key returns its original result without applying anything twice; backwards tick times are rejected.
+
+Every tick is stored, even a quiet wait. Deadlines are checked against actual UTC, and a missed deadline is recorded once when next observed, not fabricated as an encounter during downtime. A late recipient still accepts a parcel, with an inspector attending that handoff. Once the queue is finished, another parcel becomes available with a six-hour deadline. Regular encounters accumulate counts and timestamps.
+
+The initial deterministic writing rule marks first meetings, newly observed missed deadlines, and inspections as candidates for publication. Routine collection, on-time handoff, repeat encounters, and waiting stay silent unless another qualifying event occurred. No score model or random writing gate is used. The hourly worker and actual publishing will connect these parts next.
 
 ## Tests
 
