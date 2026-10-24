@@ -4,6 +4,7 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     environment:
+      TZ: UTC
       STILL_DB_PATH: /app/data/still.sqlite3
     volumes:
       - ./data:/app/data
