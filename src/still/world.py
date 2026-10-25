@@ -45,6 +45,9 @@ def personal_threads(db) -> list[str]:
     for relationship in db.scalars(select(Relationship).where(Relationship.needs_help == 1).order_by(Relationship.person_id)):
         person = db.get(Person, relationship.person_id)
         threads.append(f"After my late return, {person.name} wanted help checking the shared path before lending again.")
+    for memory in db.scalars(select(Relationship).where(Relationship.last_note != "").order_by(Relationship.person_id)):
+        if not life or life.borrowed_from != memory.person_id:
+            threads.append(f"My last reading in {READING_NAMES[memory.person_id]}: {memory.last_note}")
     return threads[:2]
 
 

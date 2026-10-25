@@ -102,6 +102,8 @@ class ContinuingLifeTest(unittest.TestCase):
         state = snapshot(self.path)
         self.assertIsNone(state['personal_life']['borrowed_from'])
         self.assertEqual(state['relationships'][0]['returns'], 1)
+        self.assertIn('missing part', state['relationships'][0]['last_note'])
+        self.assertIn('My last reading in repair-notes', ' '.join(state['personal_threads']))
         self.assertNotIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(67)))
         self.assertIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(68)))
 

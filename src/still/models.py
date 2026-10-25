@@ -81,6 +81,7 @@ class Relationship(Base):
     returns: Mapped[int] = mapped_column(Integer, default=0)
     late_returns: Mapped[int] = mapped_column(Integer, default=0)
     read_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_note: Mapped[str] = mapped_column(Text, default="")
     needs_help: Mapped[int] = mapped_column(Integer, default=0)
     refused_at: Mapped[str | None] = mapped_column(Text)
 

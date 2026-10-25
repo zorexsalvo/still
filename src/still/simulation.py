@@ -230,6 +230,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             passages = READINGS[memory.person_id]
             novel = memory.read_count < len(passages)
             life.reading_note = passages[memory.read_count % len(passages)]
+            memory.last_note = life.reading_note
             life.read_during_loan = 1
             memory.read_count += 1
             title = READING_NAMES[memory.person_id]
