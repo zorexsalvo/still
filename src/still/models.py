@@ -84,6 +84,9 @@ class Relationship(Base):
     last_note: Mapped[str] = mapped_column(Text, default="")
     needs_help: Mapped[int] = mapped_column(Integer, default=0)
     refused_at: Mapped[str | None] = mapped_column(Text)
+    # When this person got their notes back. A late return to one lender must not
+    # hold up borrowing from another, so the lending cooldown is per person.
+    last_returned_at: Mapped[str | None] = mapped_column(Text)
 
 
 class Delivery(Base):

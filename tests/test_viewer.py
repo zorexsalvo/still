@@ -29,6 +29,18 @@ class ViewerTest(unittest.TestCase):
             db.flush()
             db.add(Entry(tick_id=tick.id, at=timestamp, text=text))
 
+    def test_static_links_are_content_addressed(self):
+        # The edge caches /static for hours, so a changed file must change its URL.
+        import hashlib
+        from importlib.resources import files
+
+        self.add()
+        body = diary(self.path, now=self.now).body.decode()
+        for name in ('diary.css', 'favicon.ico', 'favicon.svg'):
+            digest = hashlib.sha256(files('still').joinpath('static', name).read_bytes()).hexdigest()[:12]
+            with self.subTest(name=name):
+                self.assertIn(f'href="/static/{name}?v={digest}"', body)
+
     def test_only_published_text_is_rendered_and_escaped(self):
         self.add('I found <script>alert("x")</script> on a label.')
         response = diary(self.path, now=self.now)
@@ -42,8 +54,8 @@ class ViewerTest(unittest.TestCase):
         self.assertNotIn("repair-shop", body)
         self.assertIn("default-src 'none'", response.headers["content-security-policy"])
         self.assertIn("img-src 'self'", response.headers["content-security-policy"])
-        self.assertIn('href="/static/favicon.svg"', body)
-        self.assertIn('href="/static/favicon.ico"', body)
+        self.assertIn('/static/favicon.svg?v=', body)
+        self.assertIn('/static/favicon.ico?v=', body)
         self.assertIn('href="#entry-1"', body)
 
     def test_presence_reports_saved_location_and_real_live_progress_not_inference_health(self):
@@ -71,6 +83,21 @@ class ViewerTest(unittest.TestCase):
         with session(self.path) as db:
             db.get(WorkerRun, 'failed').error = ''
         self.assertIn('Last finished attempt had an error', diary(self.path, now=self.now).body.decode())
+
+    def test_one_provenance_line_leads_each_backdated_run(self):
+        generated = self.now.isoformat()
+        for day, offset in (("2026-10-22", 3), ("2026-10-23", 2), ("2026-10-24", 1)):
+            self.add(f'Backdated note {day}.', at=self.now - timedelta(days=offset))
+        self.add('Kept live.')
+        with session(self.path) as db:
+            for tick_id in (1, 2, 3):
+                db.add(BackfillTick(tick_id=tick_id, day=f'2026-10-2{tick_id}', generated_at=generated, model='test'))
+        body = diary(self.path, now=self.now).body.decode()
+        # Three backdated entries in one run share one lead line above them; the live entry keeps none.
+        self.assertEqual(1, body.count('not recorded live.'))
+        self.assertLess(body.index('Kept live.'), body.index('not recorded live.'))
+        self.assertLess(body.index('not recorded live.'), body.index('Backdated note 2026-10-24.'))
+        self.assertLess(body.index('Backdated note 2026-10-24.'), body.index('Backdated note 2026-10-22.'))
 
     def test_no_live_run_is_not_mistaken_for_a_completed_replay_tick(self):
         self.add('I wrote a backdated note.', at=self.now - timedelta(days=1))

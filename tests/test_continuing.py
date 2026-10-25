@@ -144,6 +144,19 @@ class ContinuingLifeTest(unittest.TestCase):
         tick(self.path, 'return-after-work', self.at(69), {'kind': 'return_notes', 'person_id': 'ivo'})
         self.assertEqual(snapshot(self.path)['relationships'][0]['needs_help'], 1)
 
+    def test_returning_one_lenders_notes_does_not_hold_up_another(self):
+        self.resolve_owner()
+        self.act('borrow_notes', 42, 'ivo')
+        self.act('return_notes', 44, 'ivo')
+        # The lending cooldown belongs to the lender who got their notes back, not to the courier.
+        self.assertNotIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(45)))
+        self.assertIn({'kind': 'borrow_notes', 'person_id': 'mara'}, options(self.path, now=self.at(45)))
+        self.act('borrow_notes', 45, 'mara')
+        self.act('read_notes', 46)
+        self.act('return_notes', 47, 'mara')
+        self.assertNotIn({'kind': 'borrow_notes', 'person_id': 'mara'}, options(self.path, now=self.at(48)))
+        self.assertIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(68)))
+
     def test_private_choices_continue_across_days_but_rereading_is_quiet(self):
         self.resolve_owner()
         for number in range(5):

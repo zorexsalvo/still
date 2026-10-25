@@ -44,6 +44,16 @@ def session(path: Path, *, readonly: bool = False, immediate: bool = False):
 
 def create_tables(current: Session) -> None:
     Base.metadata.create_all(current.connection())
+    # Columns added after a table already exists are not covered by create_all.
+    added = {row[1] for row in current.connection().exec_driver_sql("PRAGMA table_info(relationships)")}
+    if "last_returned_at" not in added:
+        current.connection().exec_driver_sql("ALTER TABLE relationships ADD COLUMN last_returned_at TEXT")
+        # Older history cannot say which lender the last return belonged to, so everyone
+        # who has returned notes keeps the throttle rather than getting it forgiven.
+        current.connection().exec_driver_sql(
+            "UPDATE relationships SET last_returned_at = (SELECT last_returned_at FROM personal_life WHERE id = 1) "
+            "WHERE returns > 0 AND (SELECT last_returned_at FROM personal_life WHERE id = 1) IS NOT NULL"
+        )
     # SQLite triggers protect entries even from SQL outside the ORM.
     for action in ("UPDATE", "DELETE"):
         current.connection().exec_driver_sql(

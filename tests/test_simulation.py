@@ -5,8 +5,19 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from sqlalchemy import select
+
+from still.db import session
+from still.models import Delivery, Encounter
 from still.simulation import WRITING_EVENTS, options, tick
-from still.world import initialize, snapshot
+from still.world import GROWTH_INTERVAL, WORLD_GROWTH, initialize, snapshot
+
+
+def finish_seeded_round(path):
+    """Clear the seeded parcels so the next tick opens a new round of work."""
+    with session(path) as db:
+        for parcel in db.scalars(select(Delivery)):
+            parcel.status = "delivered"
 
 
 class SimulationTest(unittest.TestCase):
@@ -18,9 +29,35 @@ class SimulationTest(unittest.TestCase):
         initialize(self.path, self.now)
         self.number = 0
 
-    def act(self, action, hours=0):
+    def act(self, action, hours=0, *, grow=True):
         self.number += 1
-        return tick(self.path, str(self.number), self.now + timedelta(hours=hours), action)
+        return tick(self.path, str(self.number), self.now + timedelta(hours=hours), action, grow=grow)
+
+    def test_a_new_place_and_person_arrive_with_the_round_that_reaches_them(self):
+        finish_seeded_round(self.path)
+        # An exhausted round stays finished for its UTC day, so the next round opens tomorrow.
+        opened = self.act({"kind": "wait"}, 24)
+        self.assertIn("new_place", [event["kind"] for event in opened["events"]])
+        state = snapshot(self.path)
+        self.assertIn(("bindery", "Bindery"), [(place["id"], place["name"]) for place in state["places"]])
+        self.assertIn(("nadia", "Nadia", "bindery"),
+                      [(p["id"], p["name"], p["place_id"]) for p in state["people"]])
+        # The round starts there, so the new place becomes somewhere the courier can travel.
+        self.assertIn({"kind": "move", "place_id": "bindery"}, options(self.path))
+        self.assertNotIn(("goods-yard", "Goods yard"), [(place["id"], place["name"]) for place in state["places"]])
+
+    def test_the_route_grows_one_place_at_a_time_and_stops_when_the_list_runs_out(self):
+        finish_seeded_round(self.path)
+        introduced = []
+        for day in range(1, 4 * GROWTH_INTERVAL + 2):
+            self.act({"kind": "wait"}, 24 * day)
+            introduced = [(place["id"], place["name"]) for place in snapshot(self.path)["places"]]
+            if len(introduced) > 3 + len(WORLD_GROWTH):
+                self.fail("the route invented a place that is not in the roster")
+            finish_seeded_round(self.path)
+        self.assertEqual(3 + len(WORLD_GROWTH), len(introduced))
+        self.assertIn(("bindery", "Bindery"), introduced)
+        self.assertIn(("goods-yard", "Goods yard"), introduced)
 
     def test_legal_route_and_quiet_ticks(self):
         self.assertNotIn({"kind": "collect", "delivery_id": "parcel-1"}, options(self.path))
@@ -124,7 +161,8 @@ class SimulationTest(unittest.TestCase):
         self.act({"kind": "collect", "delivery_id": "parcel-2"}, 5)
         self.act({"kind": "move", "place_id": "repair-shop"}, 5)
         self.act({"kind": "deliver", "delivery_id": "parcel-2"}, 5)
-        self.act({"kind": "wait"}, 24)
+        # Pinned to the two established stops so this stays about lateness, not about new routes.
+        self.act({"kind": "wait"}, 24, grow=False)
         queued = next(item for item in snapshot(self.path)["deliveries"] if item["status"] == "queued")
         self.act({"kind": "collect", "delivery_id": queued["id"]}, 24)
         revisit = self.act({"kind": "move", "place_id": "records-office"}, 24)

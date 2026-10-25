@@ -10,7 +10,7 @@ from still.clock import timestamp
 from still.db import require_owner, session
 from still.hardware import under_pressure
 from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerLease
-from still.world import READING_NAMES, delivery_description
+from still.world import GROWTH_INTERVAL, READING_NAMES, WORLD_GROWTH, delivery_description
 
 
 WRITING_EVENTS = {"deadline_missed", "delivery_failed", "delivery_refused", "inspection", "file_recovered", "file_completed", "personal_visit",
@@ -96,7 +96,7 @@ def legal_actions(db: Session, hardware: dict | None = None, *, now: datetime | 
                 if memory.needs_help and memory.refused_at:
                     actions.append({"kind": "help_person", "person_id": person_id})
                 elif not life.borrowed_from and not memory.refused_at and (
-                    life.last_returned_at is None or now >= datetime.fromisoformat(life.last_returned_at) + timedelta(hours=24)
+                    memory.last_returned_at is None or now >= datetime.fromisoformat(memory.last_returned_at) + timedelta(hours=24)
                 ):
                     actions.append({"kind": "borrow_notes", "person_id": person_id})
     if under_pressure(hardware or {}):
@@ -138,7 +138,7 @@ def _result(db, tick_id):
 
 
 def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict | None = None,
-         *, owner: str | None = None) -> dict:
+         *, owner: str | None = None, grow: bool = True) -> dict:
     """Apply one legal action. Reusing a tick key returns its frozen result."""
     at = timestamp(now)
     if not isinstance(tick_key, str) or not tick_key.strip():
@@ -287,6 +287,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                     text = f"I returned {title} to {person.name} without opening it. They left the old bookmark where it was."
                 if late or memory.returns == 1:
                     event_kind = "personal_return"
+                memory.last_returned_at = at
                 life.borrowed_from = life.borrowed_at = life.return_due_at = None
                 life.read_during_loan, life.reading_note = 0, ""
                 life.last_returned_at = at
@@ -308,10 +309,29 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         ).limit(1)) is None:
             # An exhausted round stays finished for the day, leaving time for a private life.
             count = db.scalar(select(func.count()).select_from(Delivery))
-            sender, recipient, origin, destination = (
-                ("ivo", "mara", "repair-shop", "records-office") if count % 2 == 0
-                else ("mara", "ivo", "records-office", "repair-shop")
-            )
+            growth = next((entry for entry in WORLD_GROWTH if db.get(Place, entry[0]) is None), None)
+            last_growth = db.scalar(select(Tick.at).join(Event, Event.tick_id == Tick.id).where(
+                Event.kind == "new_place"
+            ).order_by(Tick.at.desc()).limit(1))
+            opened = db.scalar(select(func.count()).select_from(Delivery).where(
+                Delivery.created_at > last_growth
+            )) if last_growth else GROWTH_INTERVAL
+            if grow and growth and opened >= GROWTH_INTERVAL:
+                # Work reaches a place the route has not covered before, and the person who keeps it.
+                place_id, place_name, place_kind, person_id, person_name, role = growth
+                db.add(Place(id=place_id, name=place_name, kind=place_kind))
+                db.flush()
+                db.add(Person(id=person_id, name=person_name, role=role, place_id=place_id))
+                db.flush()
+                sender, recipient, origin, destination = person_id, "mara", place_id, "records-office"
+                _event(db, tick_id, "new_place",
+                       f"Work reached the {place_name} for the first time. {person_name} kept the counter there.",
+                       place_id=place_id, person_id=person_id)
+            else:
+                sender, recipient, origin, destination = (
+                    ("ivo", "mara", "repair-shop", "records-office") if count % 2 == 0
+                    else ("mara", "ivo", "records-office", "repair-shop")
+                )
             identifier = f"parcel-{tick_id + 2}"
             db.add(Delivery(id=identifier, sender_id=sender, recipient_id=recipient,
                             origin_id=origin, destination_id=destination, created_at=at,

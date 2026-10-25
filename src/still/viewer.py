@@ -1,8 +1,10 @@
 """Read-only HTML chronicle. This module never imports or calls inference."""
 
+import hashlib
 import logging
 from datetime import UTC, datetime
 from html import escape
+from importlib.resources import files
 from pathlib import Path
 
 from fastapi.responses import HTMLResponse
@@ -21,6 +23,12 @@ HEADERS = {
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
 }
+
+
+def _asset(name: str) -> str:
+    """Content-addressed static URL. The edge caches /static for hours, so the URL must change with the file."""
+    digest = hashlib.sha256(files("still").joinpath("static", name).read_bytes()).hexdigest()[:12]
+    return f"/static/{name}?v={digest}"
 
 
 def published(path: Path, before: int | None = None) -> list[dict]:
@@ -159,9 +167,9 @@ def _page(content: str, now: datetime, *, status: int = 200, world: bool = False
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{title}</title>
   <meta name="description" content="One courier’s diary, written as life happens. All times UTC.">
-  <link rel="stylesheet" href="/static/diary.css">
-  <link rel="icon" href="/static/favicon.ico" sizes="16x16 32x32 48x48">
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="stylesheet" href="{_asset('diary.css')}">
+  <link rel="icon" href="{_asset('favicon.ico')}" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="{_asset('favicon.svg')}" type="image/svg+xml" sizes="any">
 </head>
 <body>
   <a class="skip-link" href="#{section}">Skip to {section}</a>
@@ -192,15 +200,15 @@ def diary(path: Path, before: int | None = None, *, now: datetime | None = None)
             if before is None:
                 content += _gap(now, _utc(entries[0]["at"]))
             for index, entry in enumerate(entries[:PAGE_SIZE]):
+                generated_at = entry["backdated_at"]
+                if generated_at and (index == 0 or entries[index - 1]["backdated_at"] != generated_at):
+                    generated = _utc(generated_at)
+                    content += f'<p class="entry-origin backfill-note">Backdated: the entries below were generated {generated:%d %B %Y · %H:%M} UTC, not recorded live.</p>'
                 at = _utc(entry["at"])
                 identifier = entry["id"]
                 content += f'''<article class="entry" id="entry-{identifier}" aria-labelledby="date-{identifier}">
 <h3 id="date-{identifier}"><a href="#entry-{identifier}"><time datetime="{at.isoformat()}">{at:%d %B %Y · %H:%M} UTC</time></a></h3>
-<p class="entry-text">{escape(entry["text"])}</p>'''
-                if entry["backdated_at"]:
-                    generated = _utc(entry["backdated_at"])
-                    content += f'<p class="entry-origin">Backdated · generated {generated:%d %B %Y · %H:%M} UTC, not recorded live.</p>'
-                content += '</article>'
+<p class="entry-text">{escape(entry["text"])}</p></article>'''
                 if index + 1 < len(entries):
                     content += _gap(at, _utc(entries[index + 1]["at"]))
             if len(entries) > PAGE_SIZE:

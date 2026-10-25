@@ -42,7 +42,7 @@ def backfill(path: Path, day: date, base_url: str, model: str, *, days: int = 1)
         for hour in range(24 * days):
             at = start + timedelta(hours=hour)
             result = run_tick(source, f"hour-{hour}", base_url, model,
-                              now=at,
+                              now=at, grow=False,
                               hardware={"scope": "backfill", "temperature_c": None})
             if result["error"]:
                 raise RuntimeError(f"Backfill stopped at {at.isoformat()}: {result['error']}; no history imported")

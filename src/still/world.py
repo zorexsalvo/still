@@ -13,6 +13,15 @@ from still.models import Courier, Delivery, PersonalFile, PersonalLife, Person, 
 
 READING_NAMES = {"ivo": "repair-notes", "mara": "shared-paths"}
 
+# The route is not finished. A place and the person who keeps it are added one at a time as
+# work reaches them, in this order. Each is introduced by the round that first goes there.
+WORLD_GROWTH = (
+    ("bindery", "Bindery", "establishment", "nadia", "Nadia", "binder"),
+    ("goods-yard", "Goods yard", "depot", "oskar", "Oskar", "shunter"),
+)
+# Rounds between one new place and the next, counted in finished deliveries.
+GROWTH_INTERVAL = 6
+
 
 def _initialize_life(db) -> None:
     db.flush()

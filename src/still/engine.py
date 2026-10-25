@@ -95,7 +95,7 @@ def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
 
 def run_tick(path: Path, tick_key: str, base_url: str, model: str,
              *, now: datetime | None = None, hardware: dict | None = None,
-             owner: str | None = None) -> dict:
+             owner: str | None = None, grow: bool = True) -> dict:
     with session(path, readonly=True) as db:
         existing = db.scalar(select(Tick.id).where(Tick.tick_key == tick_key))
         if existing is not None:
@@ -110,7 +110,7 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
     except MODEL_ERRORS as failure:
         error = f"choice failed: {failure}"[:1000]
         action = {"kind": "wait"}
-    result = tick(path, tick_key, now or datetime.now(UTC), action, hardware, owner=owner)
+    result = tick(path, tick_key, now or datetime.now(UTC), action, hardware, owner=owner, grow=grow)
     tick_id = result["id"]
     status = "failed" if error else ("writing" if result["publish"] else "silent")
     with session(path, immediate=True) as db:
