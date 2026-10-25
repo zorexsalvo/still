@@ -1,0 +1,10 @@
+# Raspberry Pi / Linux host additions. Pair with compose.yaml:
+# docker compose -f compose.yaml -f compose.pi.yaml up --build -d
+services:
+  worker:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /sys/class/thermal:/host/sys/class/thermal:ro
+    environment:
+      STILL_MODEL_BASE_URL: ${STILL_MODEL_BASE_URL:-http://host.docker.internal:8080/v1}

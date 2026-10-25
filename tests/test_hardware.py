@@ -19,6 +19,7 @@ class HardwareTest(unittest.TestCase):
         self.value = {
             "sampled_at": datetime.now(UTC).isoformat(), "platform": "Darwin", "scope": "native-host",
             "load_1m": 2.0, "cpu_count": 8, "disk_free_bytes": 1000, "temperature_c": None,
+            "model_endpoint_ms": None,
         }
 
     def test_fresh_native_reading_is_used_without_worker_metrics(self):
@@ -36,7 +37,8 @@ class HardwareTest(unittest.TestCase):
             {"sampled_at": "2026-10-24T12:00:00"},
             {"load_1m": float("nan")}, {"load_1m": -1}, {"load_1m": True},
             {"cpu_count": 0}, {"cpu_count": "8"}, {"disk_free_bytes": -1},
-            {"temperature_c": "hot"}, {"platform": None}, {"scope": "invented"},
+            {"temperature_c": "hot"}, {"temperature_c": 151}, {"model_endpoint_ms": -1},
+            {"platform": None}, {"scope": "invented"},
         ]:
             with self.subTest(changes=changes):
                 self.file.write_text(json.dumps({**self.value, **changes}))
@@ -45,6 +47,12 @@ class HardwareTest(unittest.TestCase):
                 self.assertIn("Docker VM", result["host_reading"])
         self.file.write_text("broken json")
         self.assertIn("unavailable", readings(self.path)["host_reading"])
+
+    def test_thermal_pressure_has_same_consequence_as_high_load(self):
+        initialize(self.path, datetime.now(UTC))
+        hot = {**self.value, "temperature_c": 82.5}
+        self.assertTrue(under_pressure(hot))
+        self.assertEqual(options(self.path, hot), [{"kind": "wait"}])
 
     def test_load_has_consequences_without_metrics_in_prose_facts(self):
         now = datetime.now(UTC)

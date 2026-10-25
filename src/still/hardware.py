@@ -13,6 +13,31 @@ from pathlib import Path
 from still.clock import timestamp
 
 
+def temperature() -> float | None:
+    # Pi thermal-zone files are readable without elevated privileges.
+    for root in (Path("/host/sys/class/thermal"), Path("/sys/class/thermal")):
+        for sensor in sorted(root.glob("thermal_zone*/temp")):
+            try:
+                value = int(sensor.read_text().strip())
+                return value / 1000 if value > 1000 else float(value)
+            except (OSError, ValueError):
+                continue
+    return None
+
+
+def endpoint_latency_ms(base_url: str | None = None) -> float | None:
+    base_url = base_url or os.environ.get("STILL_MODEL_BASE_URL")
+    if not base_url:
+        return None
+    request = urllib.request.Request(base_url.rstrip("/") + "/models", method="GET")
+    started = time.monotonic()
+    try:
+        with urllib.request.urlopen(request, timeout=2):
+            return round((time.monotonic() - started) * 1000, 1)
+    except (OSError, urllib.error.URLError, ValueError):
+        return None
+
+
 def sample(path: Path) -> dict:
     return {
         "sampled_at": timestamp(datetime.now(UTC)),
@@ -21,7 +46,8 @@ def sample(path: Path) -> dict:
         "load_1m": os.getloadavg()[0],
         "cpu_count": os.cpu_count() or 1,
         "disk_free_bytes": shutil.disk_usage(path).free,
-        "temperature_c": None,  # No portable, unprivileged macOS thermal reading.
+        "temperature_c": temperature(),
+        "model_endpoint_ms": endpoint_latency_ms(),
     }
 
 
@@ -41,10 +67,18 @@ def readings(path: Path) -> dict:
                 or load < 0 or type(cores) is not int or cores < 1
                 or type(value.get("disk_free_bytes")) is not int or value["disk_free_bytes"] < 0
                 or not isinstance(value.get("platform"), str) or not 1 <= len(value["platform"]) <= 64
-                or value.get("temperature_c") is not None or value.get("scope") != "native-host"):
+                or (value.get("temperature_c") is not None and
+                    (type(value["temperature_c"]) not in (int, float) or not math.isfinite(value["temperature_c"])
+                     or not 0 <= value["temperature_c"] <= 150))
+                or (value.get("model_endpoint_ms") is not None and
+                    (type(value["model_endpoint_ms"]) not in (int, float)
+                     or not math.isfinite(value["model_endpoint_ms"]) or value["model_endpoint_ms"] < 0))
+                or value.get("scope") != "native-host"):
             raise ValueError("invalid or stale host reading")
+        value.setdefault("model_endpoint_ms", None)
         return {key: value[key] for key in (
-            "sampled_at", "platform", "scope", "load_1m", "cpu_count", "disk_free_bytes", "temperature_c"
+            "sampled_at", "platform", "scope", "load_1m", "cpu_count", "disk_free_bytes", "temperature_c",
+            "model_endpoint_ms"
         )}
     except (OSError, ValueError, KeyError, TypeError):
         value = sample(path.parent)
@@ -53,7 +87,8 @@ def readings(path: Path) -> dict:
 
 
 def under_pressure(value: dict) -> bool:
-    return value.get("load_1m", 0) / value.get("cpu_count", 1) > 1.5
+    return (value.get("load_1m", 0) / value.get("cpu_count", 1) > 1.5
+            or (value.get("temperature_c") is not None and value["temperature_c"] >= 80))
 
 
 def main() -> None:
