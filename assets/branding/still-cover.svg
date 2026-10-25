@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
   <title id="title">Still — a courier's diary</title>
-  <desc id="description">Original illustrative cover: a small courier with a messenger bag approaches the repair shop, in a spacious, cool-light world. This is artwork, not a recorded simulation moment.</desc>
+  <desc id="description">Original illustrative cover: a small courier with a messenger bag raises a hand in greeting toward the repair shop doorway, in a spacious, cool-light world. This is artwork, not a recorded simulation moment.</desc>
   <rect width="1200" height="630" fill="#f8fafb"/>
   <g fill="#23323d">
     <text x="88" y="239" font-family="Georgia, 'Times New Roman', serif" font-size="96" font-weight="400" letter-spacing="-2">Still</text>
@@ -12,11 +12,11 @@
   <path d="M88 480h1024" fill="none" stroke="#d8e1e5" stroke-width="2"/>
   <g transform="translate(758 252.5) scale(2.5)" fill="none" stroke="#23323d" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
     <path d="M23 19c0-7 3-11 9-11s9 4 9 11M20 19h24M25 21v5c0 5 3 8 7 8s7-3 7-8v-5"/>
-    <path d="M24 38l22 20"/>
+    <path d="M25 38l21 19"/>
     <path d="M24 36l-7 7-3 25 7 2 3-17v27h16V36"/>
-    <path d="M40 37l13-18 5 5-18 25zM56 21l0-7M56 21l4-6M56 21l6-3"/>
+    <path d="M40 37l10-12 4 3-14 21zM52 26l1-7M52 26l5-6M52 26l7-3"/>
     <path d="M28 81l-9 8-6 2M36 81l10 7 6 3"/>
-    <path d="M46 58h16v16H46zM47 59.5l7 5.5 7-5.5M52 65h4v4.5h-4z"/>
+    <path d="M45 57h16v16H45zM46 58.5l7 5.5 7-5.5M51 64h4v4.5h-4z"/>
   </g>
   <g fill="none" stroke="#52626d" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
     <path d="M1014 480V280h92v200M1087 380h4"/>
