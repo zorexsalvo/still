@@ -25,6 +25,7 @@ Use the supplied ongoing threads without pretending they were discovered again t
 Mention each named person, object or noun phrase only once; use pronouns after that.
 If removing the names and objects leaves only delivery/acceptance/signing, there is no entry.
 Do not invent human gestures or reactions to make routine work interesting.
+Do not turn future commitments into actions already performed: being asked to return later does not mean I waited.
 Let the supplied facts determine the length. Do not pad or list every action.
 Never add generic status closings such as 'The operation completed' or 'The transfer is complete'.
 Earlier recorded pickup or travel can supply concrete background instead of a closing summary.

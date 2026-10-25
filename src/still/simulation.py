@@ -284,7 +284,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                     text = f"I returned {title} to {person.name}. They kept my place marked for the next time."
                 else:
                     text = f"I returned {title} to {person.name} without opening it. They left the old bookmark where it was."
-                if late or memory.returns == 1 or (life.read_during_loan and memory.read_count <= len(READINGS[person.id])):
+                if late or memory.returns == 1:
                     event_kind = "personal_return"
                 life.borrowed_from = life.borrowed_at = life.return_due_at = None
                 life.read_during_loan, life.reading_note = 0, ""

@@ -149,7 +149,8 @@ class ContinuingLifeTest(unittest.TestCase):
             self.act('borrow_notes', hour, 'ivo')
             reading = self.act('read_notes', hour + 1)
             self.assertEqual(reading['publish'], number < 4)
-            self.act('return_notes', hour + 2, 'ivo')
+            returned = self.act('return_notes', hour + 2, 'ivo')
+            self.assertEqual(returned['publish'], number == 0)
         self.assertEqual(snapshot(self.path)['relationships'][0]['read_count'], 5)
         self.assertIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(172)))
 
