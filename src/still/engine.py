@@ -79,12 +79,13 @@ def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
         for delivery in db.scalars(select(Delivery).where(
             Delivery.status.in_(("queued", "carried")), Delivery.due_at < at,
         ).order_by(Delivery.due_at, Delivery.id).limit(2 - len(threads))):
-            description = delivery_description(delivery.id)
+            description = delivery_description(delivery.id, delivery.contents)
             references.add(description)
             threads.append(f"The {description} was still undelivered past its deadline at the {delivery.destination.name}.")
         for event in recent + result["events"]:
             if event.get("delivery_id"):
-                references.add(delivery_description(event["delivery_id"]))
+                parcel = db.get(Delivery, event["delivery_id"])
+                references.add(delivery_description(event["delivery_id"], parcel.contents if parcel else ""))
     background = "\n".join(event["text"] for event in reversed(recent)) or "None."
     current = "\n".join(event["text"] for event in result["events"] if event.get("kind") not in ("encounter", "first_meeting"))
     unresolved = "\n".join(f"- {thread}" for thread in threads) or "None recorded."

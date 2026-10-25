@@ -10,11 +10,13 @@ from still.clock import timestamp
 from still.db import require_owner, session
 from still.hardware import under_pressure
 from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerLease
-from still.world import GROWTH_INTERVAL, READING_NAMES, WORLD_GROWTH, delivery_description
+from still.world import CONTENTS, GROWTH_INTERVAL, READING_NAMES, WORLD_GROWTH, delivery_description
 
 
 WRITING_EVENTS = {"deadline_missed", "delivery_failed", "delivery_refused", "inspection", "file_recovered", "file_completed", "personal_visit",
                   "owner_followup", "personal_borrow", "personal_read", "personal_return", "personal_deadline_missed", "personal_refusal", "personal_help"}
+# A handover offered this long after its deadline is refused outright rather than accepted late.
+REFUSAL_AFTER = timedelta(hours=12)
 READINGS = {
     "ivo": (
         "An early repair note stopped halfway through a path. Space had been left for the missing part.",
@@ -165,7 +167,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             event_key = f"late:{parcel.id}"
             if db.scalar(select(Event.id).where(Event.event_key == event_key)) is None:
                 _event(db, tick_id, "deadline_missed",
-                       f"The deadline for the {delivery_description(parcel.id)} at the {parcel.destination.name} had passed. It was still undelivered.",
+                       f"The deadline for the {delivery_description(parcel.id, parcel.contents)} at the {parcel.destination.name} had passed. It was still undelivered.",
                        event_key=event_key, delivery_id=parcel.id)
 
         life = db.get(PersonalLife, 1)
@@ -190,25 +192,33 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         elif kind == "collect":
             parcel = db.get(Delivery, action["delivery_id"])
             parcel.status = "carried"
-            _event(db, tick_id, "collected", f"I collected the {delivery_description(parcel.id)}.", delivery_id=parcel.id)
+            _event(db, tick_id, "collected", f"I collected the {delivery_description(parcel.id, parcel.contents)}.", delivery_id=parcel.id)
         elif kind == "deliver":
             parcel = db.get(Delivery, action["delivery_id"])
-            parcel.status = "delivered"
-            _event(db, tick_id, "delivered", f"I delivered the {delivery_description(parcel.id)} to {parcel.recipient.name}. They accepted it and signed for it.",
-                   delivery_id=parcel.id, recipient_id=parcel.recipient_id)
-            if at > parcel.due_at:
-                inspector = db.get(Person, "inspector-ren")
-                if inspector is None:
-                    inspector = Person(id="inspector-ren", name="Ren", role="inspector", place_id=parcel.destination_id)
-                    db.add(inspector)
-                else:
-                    inspector.place_id = parcel.destination_id
-                db.flush()
-                db.add(Arrival(tick_id=tick_id, person_id=inspector.id))
-                _event(db, tick_id, "inspection",
-                       f"Ren came to check the late handoff of the {delivery_description(parcel.id)}, wrote down the time, and left.",
-                       person_id=inspector.id, delivery_id=parcel.id)
-                _encounter(db, tick_id, inspector, parcel.destination.name, at)
+            if at > timestamp(datetime.fromisoformat(parcel.due_at) + REFUSAL_AFTER):
+                # Too late to be worth taking. The handover does not happen at all, so there is
+                # nothing for the inspector to check.
+                parcel.status = "returned"
+                _event(db, tick_id, "delivery_refused",
+                       f"{parcel.recipient.name} would not take the {delivery_description(parcel.id, parcel.contents)}. It was too late to hand over, so I carried it back.",
+                       delivery_id=parcel.id, recipient_id=parcel.recipient_id)
+            else:
+                parcel.status = "delivered"
+                _event(db, tick_id, "delivered", f"I delivered the {delivery_description(parcel.id, parcel.contents)} to {parcel.recipient.name}. They accepted it and signed for it.",
+                       delivery_id=parcel.id, recipient_id=parcel.recipient_id)
+                if at > parcel.due_at:
+                    inspector = db.get(Person, "inspector-ren")
+                    if inspector is None:
+                        inspector = Person(id="inspector-ren", name="Ren", role="inspector", place_id=parcel.destination_id)
+                        db.add(inspector)
+                    else:
+                        inspector.place_id = parcel.destination_id
+                    db.flush()
+                    db.add(Arrival(tick_id=tick_id, person_id=inspector.id))
+                    _event(db, tick_id, "inspection",
+                           f"Ren came to check the late handoff of the {delivery_description(parcel.id, parcel.contents)}, wrote down the time, and left.",
+                           person_id=inspector.id, delivery_id=parcel.id)
+                    _encounter(db, tick_id, inspector, parcel.destination.name, at)
         elif kind == "restore_file":
             personal = db.get(PersonalFile, 1)
             contents, observation = FILE_RECOVERY[personal.progress]
@@ -333,10 +343,11 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                     else ("mara", "ivo", "records-office", "repair-shop")
                 )
             identifier = f"parcel-{tick_id + 2}"
+            load = CONTENTS[count % len(CONTENTS)]
             db.add(Delivery(id=identifier, sender_id=sender, recipient_id=recipient,
                             origin_id=origin, destination_id=destination, created_at=at,
-                            due_at=timestamp(now + timedelta(hours=6))))
-            _event(db, tick_id, "work_arrived", f"The {delivery_description(identifier)} was waiting on the route.",
+                            due_at=timestamp(now + timedelta(hours=6)), contents=load))
+            _event(db, tick_id, "work_arrived", f"The {load} was waiting on the route.",
                    delivery_id=identifier)
         kinds = set(db.scalars(select(Event.kind).where(Event.tick_id == tick_id)))
         current.publish = int(bool(kinds & WRITING_EVENTS))

@@ -10,7 +10,7 @@ from sqlalchemy import select
 from still.db import session
 from still.models import Delivery, Encounter
 from still.simulation import WRITING_EVENTS, options, tick
-from still.world import GROWTH_INTERVAL, WORLD_GROWTH, initialize, snapshot
+from still.world import CONTENTS, GROWTH_INTERVAL, WORLD_GROWTH, initialize, snapshot
 
 
 def finish_seeded_round(path):
@@ -109,6 +109,21 @@ class SimulationTest(unittest.TestCase):
         self.assertIn("parcel-1", completed)
         self.assertIn("parcel-2", completed)
 
+    def test_consecutive_rounds_do_not_carry_the_same_load(self):
+        # Rounds are created one per UTC day and their ids advance in fixed steps, so a load derived
+        # from the id alone repeats forever. Each round chooses and stores its own.
+        finish_seeded_round(self.path)
+        for day in range(1, 8):
+            self.act({"kind": "wait"}, 24 * day, grow=False)
+            finish_seeded_round(self.path)
+        with session(self.path) as db:
+            created = [row.contents for row in db.scalars(select(Delivery).where(
+                Delivery.id.not_in(("parcel-1", "parcel-2"))
+            ).order_by(Delivery.created_at))]
+        self.assertGreaterEqual(len(created), 5)
+        self.assertTrue(all(created), "every round records what it carries")
+        self.assertEqual(len(set(created)), len(created), "consecutive rounds repeat a load")
+
     def test_writer_facts_describe_contents_not_internal_parcel_ids(self):
         facts = []
         for hour in range(24):
@@ -116,8 +131,8 @@ class SimulationTest(unittest.TestCase):
             facts.extend(event["text"] for event in result["events"])
         prose = " ".join(facts)
         self.assertNotIn("parcel-", prose.lower())
-        for description in ("corrected directory index", "access request", "sealed directory copy"):
-            self.assertIn(description, prose)
+        found = {description for description in CONTENTS if description in prose}
+        self.assertGreaterEqual(len(found), 2)
 
     def test_named_database_ids_remain_collectible(self):
         with closing(sqlite3.connect(self.path)) as connection, connection:
@@ -179,3 +194,16 @@ class SimulationTest(unittest.TestCase):
         result = self.act({"kind": "move", "place_id": "repair-shop"}, 11)
         self.assertEqual(result["action"]["kind"], "move")
         self.assertIn("first_meeting", [event["kind"] for event in result["events"]])
+
+    def test_a_handover_offered_far_too_late_is_refused_not_accepted(self):
+        self.act({"kind": "move", "place_id": "repair-shop"})
+        self.act({"kind": "collect", "delivery_id": "parcel-1"}, 1)
+        self.act({"kind": "move", "place_id": "records-office"}, 2)
+        # parcel-1 is due four hours after the world starts; well past the refusal window.
+        refused = self.act({"kind": "deliver", "delivery_id": "parcel-1"}, 24)
+        kinds = [event["kind"] for event in refused["events"]]
+        self.assertIn("delivery_refused", kinds)
+        self.assertNotIn("delivered", kinds)
+        self.assertNotIn("inspection", kinds)
+        self.assertTrue(refused["publish"])
+        self.assertEqual(snapshot(self.path)["deliveries"][0]["status"], "returned")

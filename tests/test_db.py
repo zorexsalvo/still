@@ -29,15 +29,20 @@ class DatabaseTest(unittest.TestCase):
             connection.executescript(fixture.read_text())
             tables = [row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")]
             before = {table: connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall() for table in tables}
-            schemas = dict(connection.execute("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL"))
+            columns = {table: [row[1] for row in connection.execute(f'PRAGMA table_info("{table}")')] for table in tables}
         initialize(self.path, self.now)
         initialize(self.path, self.now)
         with closing(sqlite3.connect(self.path)) as connection:
             for table, rows in before.items():
-                self.assertEqual(connection.execute(f'SELECT * FROM "{table}" ORDER BY rowid').fetchall(), rows)
-            after_schemas = dict(connection.execute("SELECT name, sql FROM sqlite_master WHERE sql IS NOT NULL"))
-            for name, sql in schemas.items():
-                self.assertEqual(after_schemas[name], sql)
+                # A migration may add a column; it may not drop, rename or rewrite one.
+                legacy = ", ".join(f'"{name}"' for name in columns[table])
+                self.assertEqual(
+                    connection.execute(f'SELECT {legacy} FROM "{table}" ORDER BY rowid').fetchall(), rows
+                )
+            after = [row[1] for row in connection.execute('PRAGMA table_info("deliveries")')]
+            self.assertLessEqual(set(columns["deliveries"]), set(after))
+            surviving = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            self.assertLessEqual(set(tables), surviving)
             self.assertEqual(connection.execute("PRAGMA foreign_key_check").fetchall(), [])
         with session(self.path, readonly=True) as db:
             self.assertEqual(db.get(Tick, 1).action, {"kind": "move", "place_id": "repair-shop"})

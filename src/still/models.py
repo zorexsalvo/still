@@ -104,6 +104,8 @@ class Delivery(Base):
     created_at: Mapped[str] = mapped_column(Text)
     due_at: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, default="queued", server_default="queued")
+    # Chosen when the round is created, so consecutive rounds do not repeat the same load.
+    contents: Mapped[str] = mapped_column(Text, default="", server_default="")
     sender: Mapped[Person] = relationship(foreign_keys=[sender_id])
     recipient: Mapped[Person] = relationship(foreign_keys=[recipient_id])
     origin: Mapped[Place] = relationship(foreign_keys=[origin_id])

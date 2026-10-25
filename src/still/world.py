@@ -13,6 +13,12 @@ from still.models import Courier, Delivery, PersonalFile, PersonalLife, Person, 
 
 READING_NAMES = {"ivo": "repair-notes", "mara": "shared-paths"}
 
+# What a round can be carrying, cycled by parcel number so consecutive rounds do not repeat.
+CONTENTS = (
+    "corrected directory index", "access request", "sealed directory copy", "blank label sheet",
+    "signed transfer form", "unopened invoice bundle", "spine repair order", "returned key tag",
+)
+
 # The route is not finished. A place and the person who keeps it are added one at a time as
 # work reaches them, in this order. Each is introduced by the round that first goes there.
 WORLD_GROWTH = (
@@ -60,13 +66,15 @@ def personal_threads(db) -> list[str]:
     return threads[:2]
 
 
-def delivery_description(identifier: str) -> str:
-    # shortcut: derive contents from legacy IDs; store explicit contents when deliveries gain richer metadata.
+def delivery_description(identifier: str, contents: str = "") -> str:
+    """What a round is carrying. Rounds store their own contents; older rows fall back to their id."""
+    if contents:
+        return contents
     match = re.fullmatch(r"parcel-([1-9][0-9]*)", identifier, re.IGNORECASE)
     if match is None:
         return identifier
     number = int(match[1])
-    description = ("corrected directory index", "access request", "sealed directory copy")[(number - 1) % 3]
+    description = CONTENTS[(number - 1) % len(CONTENTS)]
     return description if number <= 3 else f"{description} {number}"
 
 
@@ -114,7 +122,7 @@ def snapshot(path: Path) -> dict:
             "relationships": [as_dict(row) for row in db.scalars(select(Relationship).order_by(Relationship.person_id))],
             "places": [as_dict(row) for row in db.scalars(select(Place).order_by(Place.id))],
             "people": [as_dict(row) for row in db.scalars(select(Person).order_by(Person.id))],
-            "deliveries": [{**as_dict(row), "description": delivery_description(row.id)} for row in db.scalars(
+            "deliveries": [{**as_dict(row), "description": delivery_description(row.id, row.contents)} for row in db.scalars(
                 select(Delivery).order_by(Delivery.due_at, Delivery.id)
             )],
         }

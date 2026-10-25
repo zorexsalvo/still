@@ -34,8 +34,8 @@ class WorldTest(unittest.TestCase):
     def test_terminal_delivery_descriptions_support_legacy_and_named_ids(self):
         for identifier, description in {
             "parcel-1": "corrected directory index", "Parcel-2": "access request",
-            "parcel-3": "sealed directory copy", "parcel-9": "sealed directory copy 9",
-            "parcel-10": "corrected directory index 10", "parcel-0": "parcel-0",
+            "parcel-3": "sealed directory copy", "parcel-9": "corrected directory index 9",
+            "parcel-10": "access request 10", "parcel-0": "parcel-0",
             "corrected directory index": "corrected directory index",
         }.items():
             with self.subTest(identifier=identifier):

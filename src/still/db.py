@@ -45,6 +45,9 @@ def session(path: Path, *, readonly: bool = False, immediate: bool = False):
 def create_tables(current: Session) -> None:
     Base.metadata.create_all(current.connection())
     # Columns added after a table already exists are not covered by create_all.
+    added = {row[1] for row in current.connection().exec_driver_sql("PRAGMA table_info(deliveries)")}
+    if "contents" not in added:
+        current.connection().exec_driver_sql("ALTER TABLE deliveries ADD COLUMN contents TEXT NOT NULL DEFAULT ''")
     added = {row[1] for row in current.connection().exec_driver_sql("PRAGMA table_info(relationships)")}
     if "last_returned_at" not in added:
         current.connection().exec_driver_sql("ALTER TABLE relationships ADD COLUMN last_returned_at TEXT")
