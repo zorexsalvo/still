@@ -51,6 +51,12 @@ Publication, HTTP reading with inference unavailable, replay, and restart/rest p
 
 The World page exposes borrowed notes, UTC return time, current private threads and lending history using its existing document components. Isolated loan fixtures were rendered and inspected at 1440px and 390px; no page overflow. Captures: `.impeccable/review/continuing-world-desktop.png` and `continuing-world-mobile.png`. No Jev dependency or call was added.
 
+## Minimal courier presence — 2026-10-25
+
+**110 tests pass** natively and in Docker. Static inline SVG scenes use the latest recorded tick for arrival, reading/restoration, waiting and actual interaction partners; companions disappear on a later solo tick, and older imported ticks do not override newer moments. Inspections and refused loans do not depict a successful handoff. Read-only footer status uses stored courier location, worker check-in, completed live runs with matching persisted ticks, and the next eligible time. Replay ticks and unfinished/orphan runs are not counted as completed live progress. Recent, stale, future-clock, active and failed states are tested; raw worker errors are not exposed, and unavailable status does not hide an otherwise readable diary.
+
+Chrome checked the diary and World page at 1440px and 390px with isolated synthetic fixtures, including stale/error state and two recorded locations. No page overflow, prose overlap or animation. Evidence: `.impeccable/review/presence-*.png`. These are review captures, not shipping assets. The courier SVG is authored inline; no raster asset, external request, polling or inference is added. Static detection reported no findings; it is not a full semantic/accessibility audit. Live data and worker processes were not changed for this UI work, and the remote deployment was not verified.
+
 ## Limits of this evidence
 
 Hourly cadence and long gaps are tested deterministically rather than by waiting a full week. This is not a multi-day soak, a guarantee of future model factuality, a bespoke visual-brand approval, or Raspberry Pi performance validation. The starter route can produce long or indefinite silence under its intentionally simple writing gate. See README for operational limits and deferred features.
