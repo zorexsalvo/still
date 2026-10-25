@@ -2,9 +2,17 @@
 
 A courier's diary, written locally by Gemma. The simulation owns the facts, a separate worker advances the life, and a read-only viewer shows what was written: <http://localhost:8000/>.
 
-## Docker (Mac first)
+## Running platforms
 
-Start Docker Desktop or OrbStack and the native model server described under **Local inference** below. For real Mac hardware readings, optionally run `uv run python -m still.hardware --watch` in a separate terminal before starting Compose. Then:
+Still runs on macOS for development and is also running on Raspberry Pi, as confirmed by the project author. The detailed development checks in [VERIFICATION.md](VERIFICATION.md) were performed on the Mac; Pi deployment does not by itself establish a multi-day soak or Pi-specific performance/thermal calibration.
+
+## Docker
+
+**Mac:** start Docker Desktop or OrbStack and the native model server described under **Local inference** below. For real Mac hardware readings, optionally run `uv run python -m still.hardware --watch` outside Docker, in a separate terminal before starting Compose.
+
+**Raspberry Pi/Linux:** use Docker Engine and Compose with a model endpoint reachable from the worker container. The checked-in `host.docker.internal` URL is a Mac setup convention, not an automatic Linux host connection. Use the Pi deployment's working endpoint through a Compose override of the worker's `STILL_MODEL_BASE_URL`; exporting a shell variable alone does not replace the literal URL in `compose.yaml`. A model bound only to the host's loopback is not reachable through a normal Linux bridge container's own `127.0.0.1`. Keep model access private.
+
+With the platform's model connection configured:
 
 ```sh
 docker compose up --build -d
@@ -14,14 +22,16 @@ curl http://localhost:8000/health
 SQLite is stored at `./data/still.sqlite3`, bind-mounted into `/app/data`.
 The entire directory is mounted to keep SQLite's WAL and shared-memory files alongside the database. Rebuilding or removing containers does not delete this directory. Deleting `data/` does delete the database. Do not copy a live database file alone for backups; use SQLite's backup API or stop the app before copying the directory.
 
-The web server is published on `0.0.0.0:8000`, so other devices on your network can reach it using your Mac's LAN address. It has no authentication: use a trusted network and do not expose it directly to the internet. The model server remains localhost-only. API docs: <http://localhost:8000/docs>. Compose runs one `worker` and one read-only `still` web process, using the same image. The web process waits for worker initialization on first start, but its ongoing health does not depend on model availability. Its SQLite connections are read-only; the directory mount remains writable because SQLite may need WAL/SHM coordination files.
+The web server is published on `0.0.0.0:8000`, so other devices on your network can reach it using the host machine's LAN address. It has no authentication: use a trusted network and do not expose it directly to the internet. Keep the model API private; the Mac inference example below binds it to localhost. API docs: <http://localhost:8000/docs>. Compose runs one `worker` and one read-only `still` web process, using the same image. The web process waits for worker initialization on first start, but its ongoing health does not depend on model availability. Its SQLite connections are read-only; the directory mount remains writable because SQLite may need WAL/SHM coordination files.
 
 ```sh
 docker compose logs -f
 docker compose down
 ```
 
-## Without Docker
+## Without Docker (Mac or Pi)
+
+Start the model server first. A native worker defaults to `http://127.0.0.1:8080/v1`; use `STILL_MODEL_BASE_URL` and `STILL_MODEL` for the actual private endpoint and alias in your deployment.
 
 ```sh
 uv sync --locked
@@ -74,7 +84,7 @@ The deterministic writing rule marks newly observed missed deadlines, inspection
 
 ## A life outside work
 
-The courier has a private `old-index` file with three damaged lines. `restore_file` recovers its path, an empty owner field, and a final `keep: yes` instruction in three persistent steps. The project is stored in SQLite, not by modifying any files on your Mac. Existing worlds receive the new project without resetting their courier or history.
+The courier has a private `old-index` file with three damaged lines. `restore_file` recovers its path, an empty owner field, and a final `keep: yes` instruction in three persistent steps. The project is stored in SQLite, not by restoring real files on the host. Existing worlds receive the new project without resetting their courier or history.
 
 `visit` lets him show Ivo the file outside a delivery. Ivo responds to its current state; the same stage cannot be shown repeatedly. Visiting may involve travel, and both visiting and restoring consume a tick. Choosing either while work is pending can therefore make a delivery late. Hardware pressure blocks these activities too, and shutdown/downtime never advances the project.
 
@@ -100,17 +110,17 @@ The worker starts one tick immediately on a new world, then persists the next el
 
 A data-directory file lock plus a 90-second SQLite ownership lease rejects a second worker, including across native macOS and Docker (where `flock` alone is not shared). The lease is renewed alongside checkpoints and fenced at state/publication writes. An unclean kill may delay supervisor recovery until the old lease expires; graceful shutdown releases it immediately. `worker_runs` records attempts even if a crash interrupts inference before any legal action is applied. Interrupted publication is marked failed and never rewritten; recovery of an active attempt conservatively starts a fresh hour of rest. Graceful shutdown waits for the active tick; Compose allows 30 seconds before killing it, after which crash recovery applies. `restart: unless-stopped` supervises the worker. Model failures are recorded and still incur the normal rest, not repeated rapid retries. Start the model before the worker if you want the first tick to have inference available.
 
-`STILL_MODEL_BASE_URL` defaults to `http://127.0.0.1:8080/v1` natively; Compose uses `http://host.docker.internal:8080/v1`. `STILL_MODEL` defaults to `still`. `python -m still.worker --health` checks checkpoint freshness without initializing or changing the world.
+`STILL_MODEL_BASE_URL` defaults to `http://127.0.0.1:8080/v1` natively; the checked-in Compose configuration uses `http://host.docker.internal:8080/v1` for the Mac setup. Pi/Linux containers need a reachable endpoint configured for that deployment. `STILL_MODEL` defaults to `still`. `python -m still.worker --health` checks checkpoint freshness without initializing or changing the world.
 
-Portable readings include load, core count, free disk, platform, and sample time. CPU temperature is explicitly unavailable on macOS; no privileged sensor tools or invented values are used. A native sampler can atomically refresh `data/host-hardware.json` every 30 seconds:
+Hardware already affects the simulation on either platform. Readings include load, core count, free disk, platform, and sample time. Temperature collection is not implemented: `temperature_c` is `null` on both Mac and Pi, even where the OS could expose a sensor. No privileged sensor tools or invented values are used. A native sampler on the machine running the worker can atomically refresh `data/host-hardware.json` every 30 seconds:
 
 ```sh
 uv run python -m still.hardware --watch
 ```
 
-The worker accepts valid native samples no older than 90 seconds. Missing/stale/invalid files fall back to the worker's own readings, explicitly labelled as such: inside Docker those describe the VM, not the Mac. A native worker needs no separate sampler to read its own machine.
+The worker accepts valid native samples no older than 90 seconds. Missing/stale/invalid files fall back to the worker's own readings, explicitly labelled as such. On a Mac with Docker Desktop or OrbStack, those readings describe the Docker Linux environment rather than the macOS host. On a native Linux Pi, containers share the host kernel; there is no Docker Desktop VM by default, though container resource limits and filesystem views still matter. A host-side sampler makes the intended source explicit on either platform. A native worker needs no separate sampler to read its own machine.
 
-Load greater than 1.5 per reported core prevents collecting, travelling, restoring, or visiting for that tick; handing over an already-carried parcel at its destination remains legal. The resulting wait can make a delivery late. Recorded facts describe slow movement, never the metric. This threshold is a simple sim rule, not calibrated illness or thermal behavior; real Pi thermal calibration is deferred. Disk free space is recorded but does not yet change behavior.
+Load greater than 1.5 per reported core prevents collecting, travelling and personal actions (including reading or returning notes) for that tick; handing over an already-carried parcel at its destination remains legal. The resulting wait can make a delivery or a promised personal return late. Recorded facts describe slow movement, never the metric. This threshold is a simple sim rule, not calibrated illness or thermal behavior. Running on the Pi does not establish Pi-specific threshold or thermal calibration. Disk free space is recorded but does not yet change behavior.
 
 ## Reading the diary
 
@@ -158,13 +168,15 @@ See [VERIFICATION.md](VERIFICATION.md) for the checks performed on the local MVP
 - The route is a starter world: three places, two regulars, and an event-bound inspector. Beyond the personal-file visits, further encounter and establishment-change types are not implemented.
 - The deterministic gate has no daily quota or quiet-streak nudge. Routine successes stay silent. The owner inquiry and eight reading passages are authored, finite material; borrowing, rereading, promises and relationship repair remain available afterward. Paid-delivery refusal/failure producers are not implemented.
 - Prose checks are heuristics, not semantic verification. Sustained voice quality and factuality still need sample review. The writer sees current facts, bounded recorded context and up to two unresolved items. Phrase detection uses known references and lexical patterns, not a full parser, so false positives and misses remain possible; deliberate autobiographical memory decay is not implemented.
-- Native host sampling is optional. Without fresh host samples, Docker readings describe its VM; temperature is unavailable, and the load threshold is not Pi thermal calibration.
+- Native host sampling is optional. Without fresh samples, the worker uses its own environment: the Docker Linux environment on Mac, or a shared-kernel container environment on native Linux/Pi. Temperature sensing is not implemented, disk space has no behavioral effect, and the load threshold is not Pi thermal calibration.
 - Crash checkpoints have roughly 30-second uncertainty, and a stale worker lease can delay recovery for up to 90 seconds. Schema changes beyond adding tables need explicit migrations.
-- No multi-day soak, Raspberry Pi deployment, public hosting, replay, doodles, per-user lives, or reader-controlled ending has been tested or added.
+- Raspberry Pi deployment is active, but no multi-day soak duration, Pi-specific performance measurements or public-deployment security review are documented here. Per-user lives and a reader-controlled ending remain unimplemented.
 
 ## Local inference
 
-Run llama.cpp's `llama-server` natively on macOS for Metal acceleration:
+The command below is the verified **Mac development example**, using native llama.cpp with Metal acceleration. For Pi, use the llama.cpp build and private model endpoint configured for that deployment; its hardware, inference placement and performance are not specified by the Mac test record.
+
+On Mac:
 
 ```sh
 brew install llama.cpp
@@ -180,7 +192,7 @@ llama-server \
 
 The first launch downloads weights into llama.cpp's cache outside the repo. Leave this running in a separate terminal. This is a text-only test; no image input is needed.
 
-The container reaches the host server through `host.docker.internal`; localhost-bound llama-server was verified with OrbStack. Other Docker runtimes may require host-network configuration; keep access restricted to trusted local clients rather than exposing an unauthenticated model on your LAN. Viewer requests never originate model calls.
+In the Mac setup, the container reaches the host server through `host.docker.internal`; localhost-bound llama-server was verified with OrbStack. Do not assume that routing works unchanged on Linux/Pi. Other Docker runtimes may require explicit host-network configuration; keep access restricted to trusted local clients rather than exposing an unauthenticated model on your LAN. Viewer requests never originate model calls.
 
 Run the one-shot voice test:
 
@@ -188,6 +200,6 @@ Run the one-shot voice test:
 uv run python -m still.prose --model still
 ```
 
-Use `--base-url http://host.docker.internal:8080/v1` when running the command inside Docker. The test prints one entry without publishing or changing SQLite. It is not a substitute for testing prose on the Pi later.
+When testing inside Docker, pass `--base-url` with the endpoint reachable from that container (`http://host.docker.internal:8080/v1` in the Mac setup). The test prints one entry without publishing or changing SQLite. A successful one-shot test, including on Pi, is not evidence of sustained prose quality or a multi-day soak.
 
-SQLite will be the source of truth for published entries. No `diary.md` export is required.
+SQLite is the source of truth for published entries. No `diary.md` export is required.

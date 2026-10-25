@@ -1,6 +1,15 @@
-# Local MVP verification
+# Verification and deployment
 
-Verified on 2026-10-24, macOS arm64 with OrbStack, native llama.cpp 0.7.0, and `ggml-org/gemma-4-E2B-it-GGUF` Q4_0 served under the `still` alias.
+## Running platforms
+
+- **Mac:** development and the detailed automated, inference and browser checks recorded below.
+- **Raspberry Pi:** tested and now running, as confirmed by the project author. Pi hardware specifications, inference placement, benchmark results and sustained-run duration have not been recorded here.
+
+The Pi deployment confirmation does not retroactively make the Mac test counts or measurements Pi results. It also does not establish a multi-day soak, Pi-specific load-threshold calibration or thermal behavior.
+
+## Mac development baseline
+
+Originally verified on 2026-10-24, macOS arm64 with OrbStack, native llama.cpp 0.7.0, and `ggml-org/gemma-4-E2B-it-GGUF` Q4_0 served under the `still` alias. The dated development evidence below comes from this Mac environment unless otherwise noted.
 
 ## Automated checks
 
@@ -59,4 +68,4 @@ Chrome checked the diary and World page at 1440px and 390px with isolated synthe
 
 ## Limits of this evidence
 
-Hourly cadence and long gaps are tested deterministically rather than by waiting a full week. This is not a multi-day soak, a guarantee of future model factuality, a bespoke visual-brand approval, or Raspberry Pi performance validation. The starter route can produce long or indefinite silence under its intentionally simple writing gate. See README for operational limits and deferred features.
+Hourly cadence and long gaps were tested deterministically rather than by waiting a full week. Pi operation is confirmed separately above, but no multi-day soak duration, Pi-specific performance measurements or thermal calibration are documented here. Neither deployment nor these checks guarantee future model factuality or prose quality. The starter world can still produce long silences under its intentionally simple writing gate. See README for operational limits and deferred features.

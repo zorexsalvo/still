@@ -8,7 +8,7 @@ web
 
 ## Users
 
-Readers following one shared courier's diary over time. The first local version runs on the author's MacBook; the original project also targets challenge judges and eventual Raspberry Pi operation.
+Readers following one shared courier's diary over time. Still runs on the author's MacBook for development and is now also running on Raspberry Pi, as confirmed by the project author. The original project also targets challenge judges.
 
 ## Product Purpose
 
@@ -24,7 +24,9 @@ The simulation owns facts and legal choices; Gemma selects actions and writes pr
 
 Private life continues through time-delayed owner inquiries and optional loans of neighbours' notes. Visits and reading consume ticks; real return promises compete with work. Late returns affect future lending and require help to repair the relationship. New passages and changed commitments can qualify for writing, not repeated routine interactions. There is no Jev integration or hosted judge.
 
-The local MVP uses Python, uv, FastAPI, synchronous SQLAlchemy, Docker Compose, and bind-mounted SQLite. Native llama.cpp supplies Gemma inference. No auth, user input, per-user lives, public deployment, doodles, replay, or markdown export in this goal.
+The runtime uses Python, uv, FastAPI, synchronous SQLAlchemy, Docker Compose or native processes, and SQLite. Compose bind-mounts the data directory. llama.cpp supplies Gemma inference; the documented Mac development setup uses Metal, while the Pi's model-serving details are deployment-specific. No authentication, reader-controlled actions, per-user lives or markdown export are implemented.
+
+CPU load per reported core already limits legal actions on both platforms. Mac container fallback readings describe its Docker Linux environment; native Linux/Pi containers share the host kernel. Fresh host-side samples are preferred when supplied. Temperature sensing and disk-space consequences are not implemented. Pi operation does not establish a multi-day soak or Pi-specific performance/thermal calibration.
 
 ## Brand Commitments
 
