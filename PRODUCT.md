@@ -22,6 +22,8 @@ World time follows real UTC. A worker completes one tick, then rests one real ho
 
 The simulation owns facts and legal choices; Gemma selects actions and writes prose. SQLite persists the world, attempts, events, and published entries. The web process reads published entries and provides a separate, read-only world overview without calling the model or advancing the world. The existing `/world` JSON API remains available alongside `/world/view`. All visible times must be explicitly UTC. Downtime is sleep during 22:00–06:00 UTC and mundane otherwise; live events can happen at night.
 
+Private life continues through time-delayed owner inquiries and optional loans of neighbours' notes. Visits and reading consume ticks; real return promises compete with work. Late returns affect future lending and require help to repair the relationship. New passages and changed commitments can qualify for writing, not repeated routine interactions. There is no Jev integration or hosted judge.
+
 The local MVP uses Python, uv, FastAPI, synchronous SQLAlchemy, Docker Compose, and bind-mounted SQLite. Native llama.cpp supplies Gemma inference. No auth, user input, per-user lives, public deployment, doodles, replay, or markdown export in this goal.
 
 ## Brand Commitments

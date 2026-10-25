@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from still import app, world, world_view
 from still.db import session
-from still.models import Arrival, BackfillTick, Delivery, Entry, Event, PersonalFile, Person, Place, Tick, WorldClock
+from still.models import Arrival, BackfillTick, Delivery, Entry, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorldClock
 from still.worker import prepare
 from still.world import initialize, snapshot
 from still.world_view import world_page
@@ -32,6 +32,29 @@ class WorldViewTest(unittest.TestCase):
         self.assertIn('href="/"', body)
         self.assertIn("never advances it", body)
         self.assertNotIn("<button", body)
+
+    def test_borrowed_notes_threads_and_relationship_memory_are_visible_and_escaped(self):
+        with session(self.path) as db:
+            life = db.get(PersonalLife, 1)
+            life.owner_stage = 4
+            life.borrowed_from = 'ivo'
+            life.borrowed_at = self.now.isoformat()
+            life.return_due_at = (self.now + timedelta(days=1)).isoformat()
+            life.read_during_loan = 1
+            life.reading_note = '<script>private note</script>'
+            memory = db.get(Relationship, 'ivo')
+            memory.loans, memory.returns, memory.late_returns = 2, 1, 1
+        before = snapshot(self.path)
+        response = world_page(self.path, now=self.now)
+        body = response.body.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('Borrowed notes', body)
+        self.assertIn('repair-notes', body)
+        self.assertIn('Open threads', body)
+        self.assertIn('Notes returned: 1; late: 1.', body)
+        self.assertIn('&lt;script&gt;private note&lt;/script&gt;', body)
+        self.assertNotIn('<script>', body)
+        self.assertEqual(snapshot(self.path), before)
 
     def test_empty_deliveries_and_activity_remain_readable(self):
         with session(self.path) as db:

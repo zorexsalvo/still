@@ -47,6 +47,44 @@ class PersonalFile(Base):
     shown_progress: Mapped[int] = mapped_column(Integer)
 
 
+class PersonalLife(Base):
+    __tablename__ = "personal_life"
+    __table_args__ = (
+        CheckConstraint("id = 1"),
+        CheckConstraint("owner_stage BETWEEN 0 AND 4"),
+        CheckConstraint("(borrowed_from IS NULL AND borrowed_at IS NULL AND return_due_at IS NULL) OR (borrowed_from IS NOT NULL AND borrowed_at IS NOT NULL AND return_due_at IS NOT NULL AND return_due_at > borrowed_at)"),
+        CheckConstraint("read_during_loan IN (0, 1)"),
+        CheckConstraint("borrowed_from IS NULL OR owner_stage = 4"),
+        CheckConstraint("read_during_loan = 0 OR borrowed_from IS NOT NULL"),
+        CheckConstraint("(owner_stage IN (1, 3) AND reply_at IS NOT NULL) OR (owner_stage IN (0, 2, 4) AND reply_at IS NULL)"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_stage: Mapped[int] = mapped_column(Integer, default=0)
+    reply_at: Mapped[str | None] = mapped_column(Text)
+    borrowed_from: Mapped[str | None] = mapped_column(ForeignKey("people.id"))
+    borrowed_at: Mapped[str | None] = mapped_column(Text)
+    return_due_at: Mapped[str | None] = mapped_column(Text)
+    read_during_loan: Mapped[int] = mapped_column(Integer, default=0)
+    reading_note: Mapped[str] = mapped_column(Text, default="")
+    last_returned_at: Mapped[str | None] = mapped_column(Text)
+
+
+class Relationship(Base):
+    __tablename__ = "relationships"
+    __table_args__ = (
+        CheckConstraint("loans >= 0 AND returns >= 0 AND late_returns >= 0 AND read_count >= 0"),
+        CheckConstraint("late_returns <= returns AND returns <= loans AND read_count <= loans"),
+        CheckConstraint("needs_help IN (0, 1)"),
+    )
+    person_id: Mapped[str] = mapped_column(ForeignKey("people.id"), primary_key=True)
+    loans: Mapped[int] = mapped_column(Integer, default=0)
+    returns: Mapped[int] = mapped_column(Integer, default=0)
+    late_returns: Mapped[int] = mapped_column(Integer, default=0)
+    read_count: Mapped[int] = mapped_column(Integer, default=0)
+    needs_help: Mapped[int] = mapped_column(Integer, default=0)
+    refused_at: Mapped[str | None] = mapped_column(Text)
+
+
 class Delivery(Base):
     __tablename__ = "deliveries"
     __table_args__ = (

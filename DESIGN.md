@@ -69,7 +69,7 @@ Entry dates are underlined permalink headings. Earlier-page and refresh links re
 
 Explicitly backdated entries carry a secondary-text provenance line below their unchanged prose, identifying their actual generation time and stating that they were not recorded live.
 
-Diary and World share a small underlined section navigation with an explicit active-page state. The World view inherits the same palette and column: definition lists for the courier and clock, a monospace block only for literal file contents, plain lists for people/activity, and a semantic delivery table in a keyboard-focusable horizontal scroll region with a visible sideways-scroll hint on narrow screens. It has no controls that advance the simulation. It distinguishes backdated events, occasional visitors, and stale worker check-ins.
+Diary and World share a small underlined section navigation with an explicit active-page state. The World view inherits the same palette and column: definition lists for the courier and clock, a monospace block only for literal file contents, plain lists for people/activity, and a semantic delivery table in a keyboard-focusable horizontal scroll region with a visible sideways-scroll hint on narrow screens. It has no controls that advance the simulation. It distinguishes backdated events, occasional visitors, and stale worker check-ins. Borrowed notes and their UTC return time appear in the same courier definition list; unresolved private threads and lending history use the existing plain lists and secondary text. These are observed facts, never action controls.
 
 The empty and recoverable error views retain the document frame. Blank-date counts describe complete UTC dates, not simulated events or inferred mood.
 

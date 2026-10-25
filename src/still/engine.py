@@ -12,7 +12,7 @@ from still.db import as_dict, require_owner, session
 from still.models import BackfillTick, Delivery, Entry, Event, PersonalFile, Person, Place, Publication, Tick, WorkerLease
 from still.prose import complete, generate
 from still.simulation import options, tick
-from still.world import delivery_description, snapshot
+from still.world import READING_NAMES, delivery_description, personal_threads, snapshot
 
 
 MODEL_ERRORS = (URLError, OSError, ValueError, KeyError, IndexError, TypeError)
@@ -30,7 +30,11 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
             "You are a courier deciding your next action. Each legal action has an explicit choice index. "
             "Return that exact zero-based index: 0 means the first action, not 1. "
             "Try to finish outstanding deliveries before their deadlines, but work is not your whole life. "
-            "Use spare time or a finished round to restore your personal file or show it to Ivo. "
+            "Use spare time to restore the file, follow its owner lead when a reply is ready, or borrow and read private notes. "
+            "follow_owner asks Ivo first and then Mara; replies take time. read_notes reads the borrowed copy before returning it. "
+            "Keep return promises, and help a person if a late return has made them refuse another loan. "
+            "Do not return borrowed notes unread unless work or a promise requires it. "
+            "Ivo lends repair-notes and Mara lends shared-paths; each has four passages. Prefer unread notes over rereading the same ones. "
             "Personal actions use time too; choose them deliberately rather than wandering or waiting forever. "
             "Do not wait without a reason. The simulation, not you, decides consequences. "
             "Return only a JSON object containing the integer choice."
@@ -63,18 +67,14 @@ def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
         recent = list(db.scalars(select(Event.facts).where(
             Event.tick_id > last_entry,
             Event.tick_id < result["id"],
-            Event.kind != "waited",
+            Event.kind.not_in(("waited", "encounter", "first_meeting")),
             Event.tick_id.not_in(select(BackfillTick.tick_id)),
         ).order_by(Event.id.desc()).limit(8)))
-        references = set(db.scalars(select(Person.name))) | set(db.scalars(select(Place.name)))
-        threads = []
+        references = set(db.scalars(select(Person.name))) | set(db.scalars(select(Place.name))) | set(READING_NAMES.values())
+        threads = personal_threads(db)
         personal = db.get(PersonalFile, 1)
         if personal:
             references.add(personal.name)
-            if "owner: [blank]" in personal.contents:
-                threads.append(f"The owner field in my {personal.name} file was still blank. Known contents:\n{personal.contents.rstrip()}")
-            elif "[unreadable]" in personal.contents:
-                threads.append(f"My {personal.name} file still had unreadable lines. Known contents:\n{personal.contents.rstrip()}")
         at = db.get(Tick, result["id"]).at
         for delivery in db.scalars(select(Delivery).where(
             Delivery.status.in_(("queued", "carried")), Delivery.due_at < at,
@@ -86,7 +86,7 @@ def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
             if event.get("delivery_id"):
                 references.add(delivery_description(event["delivery_id"]))
     background = "\n".join(event["text"] for event in reversed(recent)) or "None."
-    current = "\n".join(event["text"] for event in result["events"])
+    current = "\n".join(event["text"] for event in result["events"] if event.get("kind") not in ("encounter", "first_meeting"))
     unresolved = "\n".join(f"- {thread}" for thread in threads) or "None recorded."
     moment = (f"Unresolved threads (ongoing, not new discoveries):\n{unresolved}\n\n"
               f"Earlier recorded context (not newly happening):\n{background}\n\nCurrent moment:\n{current}")
@@ -105,7 +105,7 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
     try:
         state = snapshot(path)
         state["now"] = (now or datetime.now(UTC)).isoformat()
-        actions = options(path, hardware)
+        actions = options(path, hardware, now=now)
         action = actions[0] if len(actions) == 1 else choose(base_url, model, actions, state)
     except MODEL_ERRORS as failure:
         error = f"choice failed: {failure}"[:1000]

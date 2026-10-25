@@ -45,6 +45,12 @@ The updated isolated real-Gemma smoke passed with a finished-round fixture. The 
 
 Publication, HTTP reading with inference unavailable, replay, and restart/rest preservation passed. The live diary was not changed by these tests. The lexical guards are not evidence of general writing quality or semantic factuality.
 
+## Continuing private life — 2026-10-25
+
+**97 tests pass** natively and in Docker. Added coverage for 18-hour reply availability using replay time rather than host time, state-preserving initialization, owner-field changes, persistent loans and reading positions, single overdue-promise events, late-return refusal/help, work delaying a personal return, borrowing cooldowns, quiet rereading, hardware restrictions and invalid-state constraints. The real-Gemma temporary-world smoke still passes publication, HTTP/offline reading, replay and restart-rest checks.
+
+The World page exposes borrowed notes, UTC return time, current private threads and lending history using its existing document components. Isolated loan fixtures were rendered and inspected at 1440px and 390px; no page overflow. Captures: `.impeccable/review/continuing-world-desktop.png` and `continuing-world-mobile.png`. No Jev dependency or call was added.
+
 ## Limits of this evidence
 
 Hourly cadence and long gaps are tested deterministically rather than by waiting a full week. This is not a multi-day soak, a guarantee of future model factuality, a bespoke visual-brand approval, or Raspberry Pi performance validation. The starter route can produce long or indefinite silence under its intentionally simple writing gate. See README for operational limits and deferred features.

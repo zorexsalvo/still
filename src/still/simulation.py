@@ -1,6 +1,6 @@
 """Legal courier actions and their atomic, deterministic consequences."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import func, select
@@ -9,11 +9,26 @@ from sqlalchemy.orm import Session
 from still.clock import timestamp
 from still.db import require_owner, session
 from still.hardware import under_pressure
-from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalFile, Person, Place, Tick, WorkerLease
-from still.world import delivery_description
+from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerLease
+from still.world import READING_NAMES, delivery_description
 
 
-WRITING_EVENTS = {"deadline_missed", "delivery_failed", "delivery_refused", "inspection", "file_recovered", "file_completed", "personal_visit"}
+WRITING_EVENTS = {"deadline_missed", "delivery_failed", "delivery_refused", "inspection", "file_recovered", "file_completed", "personal_visit",
+                  "owner_followup", "personal_borrow", "personal_read", "personal_return", "personal_deadline_missed", "personal_refusal", "personal_help"}
+READINGS = {
+    "ivo": (
+        "An early repair note stopped halfway through a path. Space had been left for the missing part.",
+        "A corrected line was followed by the earlier version. Neither had been removed.",
+        "The last two entries in a list of failed repairs had no dates beside them.",
+        "The final note said to keep the earlier copy. It did not say where it had been kept.",
+    ),
+    "mara": (
+        "The first shared-path entry had no name beside it. A space for one had been left.",
+        "A later entry pointed back to a directory that was no longer in the list.",
+        "Two versions of an entry had been kept. Neither was marked as the newer one.",
+        "The last entry ended with a question about who could remove it. There was no answer.",
+    ),
+}
 ACTIVE_STATUSES = ("queued", "carried")
 FILE_RECOVERY = (
     ("path: /archive/landing\nowner: [unreadable]\nkeep: [unreadable]\n",
@@ -31,7 +46,8 @@ FILE_VISITS = (
 )
 
 
-def legal_actions(db: Session, hardware: dict | None = None) -> list[dict]:
+def legal_actions(db: Session, hardware: dict | None = None, *, now: datetime | None = None) -> list[dict]:
+    now = now or datetime.now(UTC)
     place = db.get(Courier, 1).place_id
     carried = db.scalar(select(Delivery).where(Delivery.status == "carried"))
     actions = []
@@ -59,14 +75,38 @@ def legal_actions(db: Session, hardware: dict | None = None) -> list[dict]:
         ivo.place_id == place or (carried is None and not local_pickup)
     ):
         actions.append({"kind": "visit", "person_id": "ivo"})
+    life = db.get(PersonalLife, 1)
+    if personal.progress == 3 and personal.shown_progress == 3:
+        if life.owner_stage < 4 and (life.reply_at is None or datetime.fromisoformat(life.reply_at) <= now):
+            person = db.get(Person, "ivo" if life.owner_stage < 2 else "mara")
+            if person.place_id == place or (carried is None and not local_pickup):
+                actions.append({"kind": "follow_owner", "person_id": person.id})
+        if life.owner_stage == 4:
+            if life.borrowed_from:
+                if not life.read_during_loan:
+                    actions.append({"kind": "read_notes"})
+                person = db.get(Person, life.borrowed_from)
+                if person.place_id == place or (carried is None and not local_pickup):
+                    actions.append({"kind": "return_notes", "person_id": person.id})
+            for person_id in READING_NAMES:
+                person = db.get(Person, person_id)
+                memory = db.get(Relationship, person_id)
+                if person.place_id != place and (carried is not None or local_pickup):
+                    continue
+                if memory.needs_help and memory.refused_at:
+                    actions.append({"kind": "help_person", "person_id": person_id})
+                elif not life.borrowed_from and not memory.refused_at and (
+                    life.last_returned_at is None or now >= datetime.fromisoformat(life.last_returned_at) + timedelta(hours=24)
+                ):
+                    actions.append({"kind": "borrow_notes", "person_id": person_id})
     if under_pressure(hardware or {}):
         actions = [action for action in actions if action["kind"] == "deliver"]
     return actions + [{"kind": "wait"}]
 
 
-def options(path: Path, hardware: dict | None = None) -> list[dict]:
+def options(path: Path, hardware: dict | None = None, *, now: datetime | None = None) -> list[dict]:
     with session(path, readonly=True) as db:
-        return legal_actions(db, hardware)
+        return legal_actions(db, hardware, now=now)
 
 
 def _event(db, tick_id, kind, text, *, event_key=None, **facts):
@@ -113,7 +153,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         last = db.scalar(select(Tick).order_by(Tick.at.desc(), Tick.id.desc()).limit(1))
         if last and at < last.at:
             raise ValueError("tick time cannot run backwards")
-        if action not in legal_actions(db, hardware):
+        if action not in legal_actions(db, hardware, now=now):
             raise ValueError("illegal courier action")
         current = Tick(tick_key=tick_key, at=at, action=action, hardware=hardware or {})
         db.add(current)
@@ -127,6 +167,16 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 _event(db, tick_id, "deadline_missed",
                        f"The deadline for the {delivery_description(parcel.id)} at the {parcel.destination.name} had passed. It was still undelivered.",
                        event_key=event_key, delivery_id=parcel.id)
+
+        life = db.get(PersonalLife, 1)
+        if life.borrowed_from and at > life.return_due_at:
+            memory = db.get(Relationship, life.borrowed_from)
+            key = f"personal-overdue:{memory.person_id}:{memory.loans}"
+            if db.scalar(select(Event.id).where(Event.event_key == key)) is None:
+                person = db.get(Person, memory.person_id)
+                _event(db, tick_id, "personal_deadline_missed",
+                       f"I still had {person.name}'s borrowed notes after the time I had promised to return them.",
+                       event_key=key, person_id=person.id, file_name=READING_NAMES[person.id])
 
         kind = action["kind"]
         if kind == "move":
@@ -175,6 +225,76 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             personal.shown_progress = personal.progress
             _event(db, tick_id, "personal_visit", FILE_VISITS[personal.progress].format(name=personal.name),
                    person_id=person.id, file_name=personal.name, progress=personal.progress)
+        elif kind == "read_notes":
+            memory = db.get(Relationship, life.borrowed_from)
+            passages = READINGS[memory.person_id]
+            novel = memory.read_count < len(passages)
+            life.reading_note = passages[memory.read_count % len(passages)]
+            life.read_during_loan = 1
+            memory.read_count += 1
+            title = READING_NAMES[memory.person_id]
+            verb = "read" if novel else "reread"
+            _event(db, tick_id, "personal_read" if novel else "personal_routine",
+                   f"I {verb} {title}. {life.reading_note}", file_name=title, person_id=memory.person_id)
+        elif kind in {"follow_owner", "borrow_notes", "return_notes", "help_person"}:
+            person = db.get(Person, action["person_id"])
+            memory = db.get(Relationship, person.id)
+            db.get(Courier, 1).place_id = person.place_id
+            _encounter(db, tick_id, person, person.place.name, at)
+            title = READING_NAMES[person.id]
+            event_kind = "personal_routine"
+            if kind == "follow_owner":
+                personal = db.get(PersonalFile, 1)
+                if life.owner_stage == 0:
+                    text = "I asked Ivo about the empty owner field. He kept the path to compare with an older index. He asked me to come back after he had checked it."
+                    life.reply_at = timestamp(now + timedelta(hours=18))
+                elif life.owner_stage == 1:
+                    text = "Ivo found the path under a shared-directory heading. There was no person's name beside it. I kept the reference to ask about at the Records office."
+                    personal.contents += "reference: shared\n"
+                    life.reply_at = None
+                elif life.owner_stage == 2:
+                    text = "I asked Mara about the shared-directory reference. She left my question beside an older register to compare when it was free."
+                    life.reply_at = timestamp(now + timedelta(hours=18))
+                else:
+                    text = "Mara showed me the older register. The path was shared, with no individual owner listed. I wrote shared in my empty owner field."
+                    personal.contents = personal.contents.replace("owner: [blank]", "owner: shared")
+                    life.reply_at = None
+                life.owner_stage += 1
+                event_kind = "owner_followup"
+            elif kind == "borrow_notes":
+                if memory.needs_help:
+                    text = f"I asked {person.name} to lend the notes again. They kept them back because I had returned the last copy late. They wanted help checking the shared path first."
+                    memory.refused_at = at
+                    event_kind = "personal_refusal"
+                else:
+                    memory.loans += 1
+                    life.borrowed_from, life.borrowed_at = person.id, at
+                    life.return_due_at = timestamp(now + timedelta(hours=24))
+                    life.read_during_loan, life.reading_note = 0, ""
+                    text = f"I borrowed {title} from {person.name}. They left their place marked and asked for it back the following day."
+                    event_kind = "personal_borrow" if memory.loans == 1 else "personal_routine"
+            elif kind == "return_notes":
+                late = at > life.return_due_at
+                memory.returns += 1
+                if late:
+                    memory.late_returns += 1
+                    memory.needs_help = 1
+                    text = f"I returned {title} to {person.name} after the time I had promised. They put it away without offering another copy."
+                elif life.read_during_loan:
+                    text = f"I returned {title} to {person.name}. They kept my place marked for the next time."
+                else:
+                    text = f"I returned {title} to {person.name} without opening it. They left the old bookmark where it was."
+                if late or memory.returns == 1 or (life.read_during_loan and memory.read_count <= len(READINGS[person.id])):
+                    event_kind = "personal_return"
+                life.borrowed_from = life.borrowed_at = life.return_due_at = None
+                life.read_during_loan, life.reading_note = 0, ""
+                life.last_returned_at = at
+            else:
+                text = f"I compared /archive/landing with the index for {person.name}. They let me borrow again after we checked the reference together."
+                memory.needs_help, memory.refused_at = 0, None
+                event_kind = "personal_help"
+            _event(db, tick_id, event_kind, text, person_id=person.id,
+                   file_name=personal.name if kind == "follow_owner" else title)
         else:
             if under_pressure(hardware or {}):
                 _event(db, tick_id, "slowed", "Moving was slow. I stayed where I was.")

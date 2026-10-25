@@ -12,10 +12,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from still.db import session
 from still.models import (
     Arrival, BackfillTick, Courier, Delivery, Encounter, Event,
-    PersonalFile, Person, Place, Tick, WorkerState, WorldClock,
+    PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerState, WorldClock,
 )
 from still.viewer import _page, _utc
-from still.world import delivery_description
+from still.world import READING_NAMES, delivery_description, personal_threads
 
 
 log = logging.getLogger(__name__)
@@ -39,6 +39,8 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
             occasional = set(db.scalars(select(Arrival.person_id).distinct()))
             encounters = {row.person_id: row for row in db.scalars(select(Encounter))}
             personal = db.get(PersonalFile, 1)
+            life = db.get(PersonalLife, 1)
+            relationships = {row.person_id: row for row in db.scalars(select(Relationship))}
             worker = db.get(WorkerState, 1)
             clock = db.get(WorldClock, 1)
             carried = db.scalar(select(Delivery).where(Delivery.status == "carried"))
@@ -56,6 +58,7 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
                 '<section class="world-section"><h3>Courier</h3><dl class="world-facts">',
                 f'<dt>Location</dt><dd>{escape(names.get(courier.place_id, courier.place_id))}</dd>',
                 f'<dt>Carrying</dt><dd>{escape(delivery_description(carried.id)) if carried else "Nothing"}</dd>',
+                f'<dt>Borrowed notes</dt><dd>{escape(READING_NAMES[life.borrowed_from]) + " · return due " + _time(life.return_due_at) if life and life.borrowed_from else "Nothing"}</dd>',
                 f'<dt>Life started</dt><dd>{_time(courier.started_at)}</dd>',
                 f'<dt>Next tick</dt><dd>{"In progress" if worker and worker.active_tick_key else (_time(worker.next_tick_at) if worker else "Not scheduled yet")}</dd>',
                 f'<dt>Last check-in</dt><dd>{_time(clock.last_seen) if clock else "Not recorded yet"}</dd>',
@@ -68,13 +71,18 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
             parts.append('</section><section class="world-section"><h3>Personal file</h3>')
             if personal:
                 state = "Recovered" if personal.progress == 3 else f"{personal.progress} of 3 lines recovered"
-                shared = "Latest state shown to Ivo" if personal.shown_progress == personal.progress else "Not yet shown to Ivo in this state"
+                shared = "Decoded file shown to Ivo" if personal.shown_progress == personal.progress else "Decoded file not yet shown to Ivo"
                 parts.extend([
                     f'<figure class="world-file"><figcaption><strong>{escape(personal.name)}</strong> · {state}</figcaption>',
                     f'<pre>{escape(personal.contents)}</pre></figure><p class="world-note">{shared}.</p>',
                 ])
             else:
                 parts.append('<p class="world-note">No personal file has been started.</p>')
+            threads = personal_threads(db)
+            if threads:
+                parts.append('<h4>Open threads</h4><ul>')
+                parts.extend(f'<li>{escape(thread)}</li>' for thread in threads)
+                parts.append('</ul>')
             parts.append('</section><section class="world-section"><h3>Places and people</h3><ul class="world-places" role="list">')
             for place in places:
                 parts.append(f'<li><h4>{escape(place.name)}</h4>')
@@ -83,6 +91,11 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
                     parts.append('<p class="world-note">No regulars recorded here.</p>')
                 for person in regulars:
                     parts.append(f'<p><strong>{escape(person.name)}</strong> · {escape(person.role)}</p>')
+                    memory = relationships.get(person.id)
+                    if memory and memory.loans:
+                        parts.append(f'<p class="world-note">Notes returned: {memory.returns}; late: {memory.late_returns}.</p>')
+                        if memory.needs_help:
+                            parts.append('<p class="world-note">Wants help checking the shared path before lending again.</p>')
                     encounter = encounters.get(person.id)
                     if encounter:
                         parts.append(f'<p class="world-note">{encounter.count} encounters. Last seen {_time(encounter.last_at)}.</p>')
