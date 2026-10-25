@@ -5,7 +5,7 @@
 - **`../../src/still/static/favicon.svg`** — scalable satchel mark.
 - **`../../src/still/static/favicon.ico`** — browser fallback containing native-alpha 16, 32 and 48 px representations.
 
-Suggested cover alt text: “Still: a courier with a messenger bag approaches the repair shop. A courier’s diary, written locally by Gemma.”
+Suggested cover alt text: “Still: a courier with a messenger bag and a raised hand greets the repair shop. A courier’s diary, written locally by Gemma.”
 
 These are original vector assets derived from Still's established palette and courier illustration, not stock art or model-generated images. The scene is illustrative, not a screenshot or record of a live event. No font files are bundled.
 
