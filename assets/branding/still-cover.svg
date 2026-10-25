@@ -13,8 +13,10 @@
   <g transform="translate(758 252.5) scale(2.5)" fill="none" stroke="#23323d" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
     <path d="M23 19c0-7 3-11 9-11s9 4 9 11M20 19h24M25 21v5c0 5 3 8 7 8s7-3 7-8v-5"/>
     <path d="M25 38l21 19"/>
-    <path d="M24 36l-7 7-3 25 7 2 3-17v27h16V36"/>
-    <path d="M40 37l10-12 4 3-14 21zM52 26l1-7M52 26l5-6M52 26l7-3"/>
+    <path d="M24 36l-7 7-3 25 7 2 3-17v27h16V50"/>
+    <path d="M24 36h16"/>
+    <path d="M40 36l12-12 4 4-16 22M53 24l1-7M53 24l5-6M53 24l7-3"/>
+    <path d="M17 69l-1 5M17 69l2 5M17 69l4 4"/>
     <path d="M28 81l-9 8-6 2M36 81l10 7 6 3"/>
     <path d="M45 57h16v16H45zM46 58.5l7 5.5 7-5.5M51 64h4v4.5h-4z"/>
   </g>
