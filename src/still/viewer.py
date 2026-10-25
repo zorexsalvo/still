@@ -73,19 +73,28 @@ def _scene(db, place) -> str:
         label = f"Still with {person.name} · request refused" if person else "Still · request refused"
     position = {"depot": "depot", "records-office": "records", "repair-shop": "repair"}.get(place.id, "unknown")
     head = '<path d="M23 19c0-7 3-11 9-11s9 4 9 11M20 19h24M25 21v5c0 5 3 8 7 8s7-3 7-8v-5"/>'
-    coat = '<path d="M24 36l-7 7-3 25 7 2 3-17v27h16V53l3 17 7-2-3-25-7-7M24 38l18 22M35 58h16v16H35zM35 63h16"/>'
+    # Coat with two drawn sleeves, cuffs and hands. The satchel is drawn last with a ground fill,
+    # so it covers the sleeve and strap behind it instead of braiding with them.
+    coat = ('<path d="M24 36l-7 7-3 25 7 2 3-17v27h16V53l3 17 7-2-3-25-7-7"/><path d="M24 36h16"/>'
+            '<path d="M17 69l-1 5M17 69l2 5M17 69l4 4"/>'
+            '<path d="M24 38L46 60"/>'
+            '<path class="scene-solid" d="M38 54h16v16H38z"/>'
+            '<path d="M39 55.5l7 5.5 7-5.5M44 61h4v4.5h-4z"/>'
+            '<path d="M46 69l-1 5M46 69l2 5M46 69l4 4"/>')
     legs = '<path d="M27 81l-2 10h-6M37 81l2 10h6"/>'
     if pose == "walking":
         legs = '<path d="M28 81l-9 8-6 2M36 81l10 7 6 3"/>'
     if pose == "reading":
-        coat = '<path d="M24 36l-5 15 8 13h14l7 21M27 64l-10 9 12 15M24 39l10 12M34 43l12 3 12-3v19l-12 3-12-3zM46 46v19"/>'
-        legs = ''
+        # The held page is filled the same way, so it hides the coat it is read over.
+        coat += '<path class="scene-solid" d="M18 54l14 3 15-3v15l-15 3-14-3z"/><path d="M32 57v15M18 54l14 3 15-3v15l-15 3-14-3z"/>'
     companion = '<path class="scene-place" d="M144 94V22h34v72M170 57h2"/>'
     if person:
-        companion = '<g class="scene-companion" transform="translate(120 4)"><circle cx="32" cy="22" r="8"/><path d="M24 36l-8 9-3 24M40 36l8 9 3 24M24 36v42h16V36M27 79l-2 12h-5M37 79l2 12h5"/></g>'
+        companion = ('<g class="scene-companion" transform="translate(120 4)"><circle cx="32" cy="22" r="8"/>'
+                     '<path d="M24 36l-8 9-3 24M40 36l8 9 3 24M24 36v42h16V36M27 79l-2 12h-5M37 79l2 12h5"/>'
+                     '<path d="M13 69l-1 5M13 69l2 5M13 69l4 4M51 69l-1 5M51 69l2 5M51 69l4 4"/></g>')
         handoff = (kind in {"borrow_notes", "return_notes"} or "delivered" in kinds) and not kinds & {"personal_refusal", "delivery_refused", "inspection"}
         if handoff:
-            companion += '<path class="scene-handoff" d="M58 57h27M101 57h34M85 48h16v20H85zM89 53h8M89 58h6"/>'
+            companion += '<path class="scene-handoff" d="M58 53h27M101 53h34M85 44h16v20H85zM89 49h8M89 54h6"/>'
     recorded = f"Recorded {_utc(moment.at):%d %b %Y · %H:%M} UTC" if moment else "Recorded location"
     context = "recorded moment" if moment else "recorded location"
     return f'''<div class="ambient-world"><figure class="courier-presence presence-{position} scene-{pose}" title="{recorded}">

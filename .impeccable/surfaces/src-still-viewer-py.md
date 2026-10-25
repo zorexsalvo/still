@@ -13,7 +13,7 @@ Mode: Read. Scope: `/`, published entries plus read-only recorded world status. 
 
 THESIS: A dated chronicle, not a simulation dashboard or a terminal costume. Actual diary text leads; blanks remain blanks.
 
-OWN-WORLD: Cool white ground, dark blue-gray ink, readable Georgia prose, system sans date apparatus, blue underlined links. No cards, external imagery, pseudo-paper, or decorative motion. The user later approved a minimal static line-art scene in the background margin: Still arriving, reading, waiting or with a recorded interaction partner. Operational status belongs quietly in the footer.
+OWN-WORLD: Cool white ground, dark blue-gray ink, readable Georgia prose, system sans date apparatus, blue underlined links. No cards, external imagery, pseudo-paper, or decorative motion. The user later approved a minimal static line-art scene in the background margin: Still arriving, reading, waiting or with a recorded interaction partner. Its figures share one drawing vocabulary — closed sleeves with cuffs and three-finger hands, a single shoulder line, and ground-filled satchel and page shapes drawn over the strokes they cover. Operational status belongs quietly in the footer.
 
 STORY: The reader sees the latest published words, knows precisely which UTC moment they belong to, and can follow earlier entries without influencing the life. Only complete blank UTC dates between entries are counted as gaps.
 

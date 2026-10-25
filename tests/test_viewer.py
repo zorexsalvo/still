@@ -136,8 +136,13 @@ class ViewerTest(unittest.TestCase):
         body = diary(self.path, now=self.now).body.decode()
         self.assertIn('scene-reading', body)
         self.assertIn('Still restoring the file', body)
+        # The satchel and the held page are ground-filled so they cover the sleeve and strap
+        # strokes behind them instead of braiding with them.
+        self.assertEqual(2, body.count('class="scene-solid"'))
         tick(self.path, 'scene-wait', self.now + timedelta(hours=2), {'kind':'wait'})
-        self.assertIn('Still waiting', diary(self.path, now=self.now).body.decode())
+        body = diary(self.path, now=self.now).body.decode()
+        self.assertEqual(1, body.count('class="scene-solid"'))
+        self.assertIn('Still waiting', body)
 
     def test_reading_scene_does_not_invent_the_lenders_presence(self):
         with session(self.path) as db:

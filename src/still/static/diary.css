@@ -83,6 +83,7 @@ main:focus { outline: none; }
 .life-status time { font-variant-numeric: tabular-nums; }
 .courier-presence { position: fixed; left: calc(50% + 25rem); width: 10rem; margin: 0; color: var(--muted); pointer-events: none; }
 .courier-presence svg { display: block; width: 100%; height: auto; color: var(--rule); }
+.scene-solid { fill: var(--ground); }
 .courier-presence figcaption { font-size: .875rem; margin-top: .35rem; overflow-wrap: anywhere; }
 .courier-presence figcaption span { display: block; }
 .presence-depot { top: 65vh; }
