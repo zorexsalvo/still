@@ -7,6 +7,8 @@ import os
 import platform
 import shutil
 import time
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 

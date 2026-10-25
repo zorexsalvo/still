@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
-from still.hardware import readings, under_pressure
+from still.hardware import endpoint_latency_ms, readings, under_pressure
 from still.simulation import options, tick
 from still.world import initialize
 
@@ -47,6 +47,12 @@ class HardwareTest(unittest.TestCase):
                 self.assertIn("Docker VM", result["host_reading"])
         self.file.write_text("broken json")
         self.assertIn("unavailable", readings(self.path)["host_reading"])
+
+    def test_endpoint_latency_probe_never_raises(self):
+        # Regression: the probe used urllib without importing it, which raised
+        # NameError before its own try and broke the sample() fallback.
+        with patch.dict("os.environ", {"STILL_MODEL_BASE_URL": "http://127.0.0.1:9/v1"}):
+            self.assertIsNone(endpoint_latency_ms())
 
     def test_thermal_pressure_has_same_consequence_as_high_load(self):
         initialize(self.path, datetime.now(UTC))

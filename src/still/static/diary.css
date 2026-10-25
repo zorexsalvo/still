@@ -82,6 +82,7 @@ main:focus { outline: none; }
 .ambient-world { max-width: 45rem; margin: 1.25rem auto 0; display: flow-root; }
 .life-status { color: var(--muted); font-size: .875rem; display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; margin-top: 1rem; overflow-wrap: anywhere; }
 .life-status time { font-variant-numeric: tabular-nums; }
+.host-kind { font-size: .7em; letter-spacing: .06em; text-transform: uppercase; opacity: .65; }
 .courier-presence { position: fixed; left: calc(50% + 25rem); width: 10rem; margin: 0; color: var(--muted); pointer-events: none; }
 .courier-presence svg { display: block; width: 100%; height: auto; color: var(--rule); }
 .scene-solid { fill: var(--ground); }

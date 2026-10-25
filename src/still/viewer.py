@@ -149,12 +149,39 @@ def presence(path: Path, now: datetime) -> tuple[str, str]:
         return "", '<aside class="life-status" aria-label="Recorded world status">World status unavailable · <a href="/world/view">Check world</a></aside>'
 
 
+def host_status(path: Path) -> str:
+    """The worker's last machine reading, named in the diary's own terms.
+
+    The world's voice never explains hardware, so the labels stay in the life
+    metaphor; the literal reading (CPU temperature, model reply time) is carried
+    as a quiet secondary word rather than the headline.
+    """
+    try:
+        with session(path, readonly=True) as db:
+            latest = db.scalar(select(Tick).order_by(Tick.at.desc(), Tick.id.desc()).limit(1))
+            hardware = latest.hardware if latest and isinstance(latest.hardware, dict) else {}
+    except (SQLAlchemyError, ValueError):
+        return ""
+    temperature = hardware.get("temperature_c")
+    latency = hardware.get("model_endpoint_ms")
+    sampled = hardware.get("sampled_at")
+    details = []
+    if isinstance(temperature, (int, float)) and not isinstance(temperature, bool):
+        details.append(f'<span>Warmth {temperature:.1f}&#160;°C <span class="host-kind">CPU temp</span></span>')
+    if isinstance(latency, (int, float)) and not isinstance(latency, bool):
+        details.append(f'<span>Reply {latency:.1f}&#160;ms <span class="host-kind">model</span></span>')
+    if not details:
+        return ""
+    title = f' title="recorded {escape(sampled)}"' if isinstance(sampled, str) else ""
+    return f'<aside class="life-status host-status" aria-label="Machine readings"{title}>' + "".join(details) + '</aside>'
+
+
 def _status_time(value: str) -> str:
     at = _utc(value)
     return f'<time datetime="{at.isoformat()}">{at:%d %b %Y · %H:%M}&#160;UTC</time>'
 
 
-def _page(content: str, now: datetime, *, status: int = 200, world: bool = False, ambient: tuple[str, str] = ("", "")) -> HTMLResponse:
+def _page(content: str, now: datetime, *, status: int = 200, world: bool = False, ambient: tuple[str, str] = ("", ""), footer_extra: str = "") -> HTMLResponse:
     section = "world" if world else "diary"
     title = "Still. the world" if world else "Still. a courier’s diary"
     diary_current = '' if world else ' aria-current="page"'
@@ -180,7 +207,7 @@ def _page(content: str, now: datetime, *, status: int = 200, world: bool = False
   <nav class="section-nav" aria-label="Sections"><a href="/"{diary_current}>Diary</a><a href="/world/view"{world_current}>World</a></nav>
   {ambient[0]}
   <main id="{section}" tabindex="-1">{content}</main>
-  <footer class="page-footer"><p>{footer}</p>{ambient[1]}</footer>
+  <footer class="page-footer"><p>{footer}</p>{footer_extra}{ambient[1]}</footer>
 </body>
 </html>""", status_code=status, headers=HEADERS)
 
@@ -214,7 +241,7 @@ def diary(path: Path, before: int | None = None, *, now: datetime | None = None)
             if len(entries) > PAGE_SIZE:
                 cursor = entries[PAGE_SIZE - 1]["id"]
                 content += f'<nav class="pagination" aria-label="Diary pages"><a href="/?before={cursor}" rel="next">Earlier entries</a></nav>'
-        return _page(content, now, ambient=presence(path, now))
+        return _page(content, now, ambient=presence(path, now), footer_extra=host_status(path))
     except (SQLAlchemyError, ValueError):
         log.exception("Unable to read the published diary")
         return _page('<section class="empty"><h2>The diary could not be loaded.</h2><p>Please try again in a moment.</p><a href="/">Try again</a></section>', now, status=503)

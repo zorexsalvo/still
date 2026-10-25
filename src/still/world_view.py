@@ -14,7 +14,7 @@ from still.models import (
     Arrival, BackfillTick, Courier, Delivery, Encounter, Event,
     PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerState, WorldClock,
 )
-from still.viewer import _page, _utc, presence
+from still.viewer import _page, _utc, host_status, presence
 from still.world import READING_NAMES, delivery_description, personal_threads
 
 
@@ -142,7 +142,7 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
             else:
                 parts.append('<p class="world-note">No changes recorded yet. Quiet ticks do not appear here.</p>')
             parts.append('</section>')
-            return _page("".join(parts), now, world=True, ambient=presence(path, now))
+            return _page("".join(parts), now, world=True, ambient=presence(path, now), footer_extra=host_status(path))
     except (SQLAlchemyError, ValueError):
         log.exception("Unable to read the world")
         return _page('<section class="empty"><h2>The world could not be loaded.</h2><p>Please try again in a moment.</p><a href="/world/view">Try again</a></section>', now, status=503, world=True)

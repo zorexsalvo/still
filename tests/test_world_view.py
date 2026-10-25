@@ -11,6 +11,7 @@ from still.db import session
 from still.models import Arrival, BackfillTick, Delivery, Entry, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorldClock
 from still.worker import prepare
 from still.world import initialize, snapshot
+from still.viewer import diary
 from still.world_view import world_page
 
 
@@ -55,6 +56,38 @@ class WorldViewTest(unittest.TestCase):
         self.assertIn('&lt;script&gt;private note&lt;/script&gt;', body)
         self.assertNotIn('<script>', body)
         self.assertEqual(snapshot(self.path), before)
+
+    def test_host_readings_blend_into_the_footer_in_life_terms(self):
+        with session(self.path) as db:
+            db.add(Tick(tick_key="reading", at=self.now.isoformat(), action={"kind": "wait"},
+                        hardware={"temperature_c": 47.5, "model_endpoint_ms": 12.3,
+                                  "sampled_at": self.now.isoformat()}))
+        body = world_page(self.path, now=self.now).body.decode()
+        self.assertIn("Warmth", body)
+        self.assertIn("47.5", body)
+        self.assertIn("Reply", body)
+        self.assertIn("12.3", body)
+        # The literal reading is present, but quietly subordinate.
+        self.assertIn("CPU temp", body)
+        self.assertIn(">model<", body)
+        # It is a footer meta row, not a standalone world section.
+        self.assertGreater(body.index("Warmth"), body.index("<footer"))
+        self.assertNotIn("<h3>Host</h3>", body)
+
+    def test_host_readings_absent_leave_no_footer_noise(self):
+        body = world_page(self.path, now=self.now).body.decode()
+        self.assertNotIn("Warmth", body)
+        self.assertNotIn("Reply", body)
+
+    def test_host_readings_also_appear_in_the_diary_footer(self):
+        with session(self.path) as db:
+            db.add(Tick(tick_key="reading", at=self.now.isoformat(), action={"kind": "wait"},
+                        hardware={"temperature_c": 41.0, "model_endpoint_ms": 9.5,
+                                  "sampled_at": self.now.isoformat()}))
+        body = diary(self.path, now=self.now).body.decode()
+        self.assertIn("Warmth", body)
+        self.assertIn("41.0", body)
+        self.assertGreater(body.index("Warmth"), body.index("<footer"))
 
     def test_empty_deliveries_and_activity_remain_readable(self):
         with session(self.path) as db:

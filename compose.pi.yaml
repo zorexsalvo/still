@@ -6,5 +6,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - /sys/class/thermal:/host/sys/class/thermal:ro
+      # thermal_zone0 is a symlink to ../../devices/virtual/thermal/thermal_zone0;
+      # mount its target too or the link dangles and temperature is unreadable.
+      - /sys/devices/virtual/thermal:/host/sys/devices/virtual/thermal:ro
     environment:
       STILL_MODEL_BASE_URL: ${STILL_MODEL_BASE_URL:-http://host.docker.internal:8080/v1}
