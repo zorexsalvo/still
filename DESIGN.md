@@ -75,6 +75,12 @@ The user-approved ambient scene is authored inline SVG: Still's cap, coat and me
 
 The empty and recoverable error views retain the document frame. Blank-date counts describe complete UTC dates, not simulated events or inferred mood.
 
+### Publication assets
+
+The favicon reduces the courier's satchel to a light silhouette on an ink-colored rounded-square field, with a flap and clasp readable at small sizes. Its SVG source and 16/32/48px ICO fallback are local static assets, not a loading or activity indicator.
+
+The 1200 × 630 blog cover inherits the cool ground, Georgia title and established courier drawing in stronger ink for thumbnail legibility. The title and factual Gemma description occupy the left; an illustrative courier and repair-shop entryway occupy the right. Editable SVG and a direct PNG export live under `assets/branding/`; embedded raster provenance identifies the vector source. No stock imagery, image model or bundled font files are used. This is a brand-asset extension, not a new page identity.
+
 ## Do's and Don'ts
 
 - Do keep UTC visible in the frame and individual timestamps.

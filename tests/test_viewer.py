@@ -41,6 +41,9 @@ class ViewerTest(unittest.TestCase):
         self.assertNotIn("parcel-1", body)
         self.assertNotIn("repair-shop", body)
         self.assertIn("default-src 'none'", response.headers["content-security-policy"])
+        self.assertIn("img-src 'self'", response.headers["content-security-policy"])
+        self.assertIn('href="/static/favicon.svg"', body)
+        self.assertIn('href="/static/favicon.ico"', body)
         self.assertIn('href="#entry-1"', body)
 
     def test_presence_reports_saved_location_and_real_live_progress_not_inference_health(self):

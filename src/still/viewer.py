@@ -16,7 +16,7 @@ from still.models import BackfillTick, Courier, Entry, Event, Person, Place, Tic
 PAGE_SIZE = 50
 log = logging.getLogger(__name__)
 HEADERS = {
-    "Content-Security-Policy": "default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+    "Content-Security-Policy": "default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store",
@@ -151,6 +151,8 @@ def _page(content: str, now: datetime, *, status: int = 200, world: bool = False
   <title>{title}</title>
   <meta name="description" content="One courier’s diary, written as life happens. All times UTC.">
   <link rel="stylesheet" href="/static/diary.css">
+  <link rel="icon" href="/static/favicon.ico" sizes="16x16 32x32 48x48">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">
 </head>
 <body>
   <a class="skip-link" href="#{section}">Skip to {section}</a>

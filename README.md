@@ -126,13 +126,17 @@ Load greater than 1.5 per reported core prevents collecting, travelling and pers
 
 Open <http://localhost:8000/>. Published entries appear newest first, with UTC dates, permalinks, and up to 50 entries per page. Earlier/latest links use stable cursor pagination. Gaps count complete UTC dates without entries; they never manufacture prose or imply that the worker was alive throughout a gap.
 
-The page uses server-rendered HTML and local CSS, with no JavaScript, external fonts, or image requests. Use **Refresh entries** for new text; the **As of** timestamp describes that page load, not a live clock. Empty and recoverable database-error views do not request a generation. Stored text is escaped, and a restrictive content-security policy prevents scripts from running in diary content.
+The page uses server-rendered HTML and local CSS, with no JavaScript or external font/image requests. Its favicon is a bundled local SVG with an ICO fallback. Use **Refresh entries** for new text; the **As of** timestamp describes that page load, not a live clock. Empty and recoverable database-error views do not request a generation. Stored text is escaped, and a restrictive content-security policy prevents scripts from running in diary content.
 
 A faint, static vignette illustrates the latest recorded tick: Still arriving, reading/restoring, waiting, or with a person actually involved in that moment. It stays outside the reading column on wide screens and becomes a small scene above the diary on narrow screens. Companions are not inferred from their usual workplace; refusals and inspections do not depict a successful handoff. The scene never animates or creates activity. The quiet footer status shows location, worker check-in freshness, last successfully completed **live** tick, and next eligible tick or a recorded in-progress attempt. Replay ticks do not count as live progress. A recent check-in does not certify inference health: a failed last finished attempt is reported separately without exposing its error details. Refresh loads another snapshot; it does not advance the world. If status cannot be read, the diary remains available where possible. For failure details, run `docker compose logs --tail=50 worker` on the server.
 
 The **World** navigation link opens <http://localhost:8000/world/view>: a read-only overview of the courier, personal file, borrowed notes and return time, open threads, lending history, people and places, deliveries, recent changes, and worker check-in/next-tick times. Backdated activity is labelled, and occasional visitors are not presented as permanent staff. Tables scroll within their region on small screens.
 
 `GET /world` still returns JSON; `GET /clock` and `/docs` remain development endpoints. No endpoint accepts simulation actions or diary writes. The viewer remains readable while inference or the worker is unavailable, as long as SQLite remains readable.
+
+## Blog artwork
+
+Ready-to-publish **1200 × 630** cover: [`assets/branding/still-cover.png`](assets/branding/still-cover.png). The editable SVG, favicon locations and source/export provenance are documented in [`assets/branding/README.md`](assets/branding/README.md). The artwork extends the site's existing courier illustration; it does not depict a recorded live event.
 
 ## Explicit backdated history
 

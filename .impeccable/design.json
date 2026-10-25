@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-24T13:14:00Z",
+  "generatedAt": "2026-10-25T03:57:00Z",
   "title": "Design System: Still",
   "extensions": {
     "breakpoints": [{"name": "narrow", "value": "36rem"}],
@@ -14,6 +14,13 @@
       "description": "Normal underlined links with visible hover and keyboard focus.",
       "html": "<a class=\"ds-link\" href=\"#\">Earlier entries</a>",
       "css": ".ds-link{font: .875rem/1.5 system-ui,sans-serif;color:var(--link,#1c536e);text-underline-offset:.22em;text-decoration-thickness:1px;display:inline-block;padding-block:.75rem}.ds-link:hover{color:var(--ink,#23323d);text-decoration-thickness:2px}.ds-link:focus-visible{outline:2px solid var(--link,#1c536e);outline-offset:5px}"
+    },
+    {
+      "name": "Satchel mark",
+      "kind": "custom",
+      "description": "The brand mark and browser icon: the courier's satchel reduced to a light flap bag with a clasp on an ink rounded square, legible at 16px.",
+      "html": "<svg width=\"32\" height=\"32\" viewBox=\"0 0 32 32\" role=\"img\" aria-label=\"Still satchel mark\"><rect width=\"32\" height=\"32\" rx=\"7\" fill=\"#23323d\"/><rect x=\"6\" y=\"11\" width=\"20\" height=\"16\" rx=\"3\" fill=\"#f8fafb\"/><path d=\"m7 13 9 7 9-7\" fill=\"none\" stroke=\"#23323d\" stroke-width=\"2\" stroke-linejoin=\"round\"/><rect x=\"14\" y=\"17.5\" width=\"4\" height=\"5\" rx=\"1\" fill=\"#23323d\"/></svg>",
+      "css": ".ds-satchel{display:block;border-radius:7px}"
     }
   ],
   "narrative": {
