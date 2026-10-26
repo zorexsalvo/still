@@ -56,7 +56,7 @@ Tests include a pre-ORM database fixture, ORM and raw-SQL constraint checks, rol
 
 ## World clock (UTC)
 
-World time follows real time 1:1, not a counter advanced by ticks. `GET /clock` returns the current timestamp with an explicit `UTC` label; API documentation also identifies the timezone. The simulation worker rests ten real minutes after each completed tick.
+World time follows real time 1:1, not a counter advanced by ticks. `GET /clock` returns the current timestamp with an explicit `UTC` label; API documentation also identifies the timezone. The simulation worker rests thirty real minutes after each completed tick.
 
 On restart, time since the last checkpoint is recorded in SQLite's `downtime` table:
 
@@ -88,7 +88,7 @@ Every tick is stored, even a quiet wait. Deadlines are checked against actual UT
 
 Each new input job records what its recipient needs it for. A missed deadline holds up that activity and records the consequence once. Accepting the input enables the recipient's authored activity and creates one output parcel for another regular; delivering the output does not recursively create more work. Refusal cancels that output. Dependencies live in existing delivery rows and event facts, without migrations or rewriting old jobs. These consequences are included in model choice state and the World view.
 
-The deterministic writing rule marks newly enabled or cancelled work, missed deadlines, inspections, refusals, personal-file discoveries/completion, and nonwork visits as candidates for publication. Routine collection, handoff without a new work consequence, first introductions alone, repeat encounters, and waiting stay silent unless another qualifying event occurred. The presence of an unresolved thread alone does not turn routine work into a candidate. No score model or random writing gate is used. `still.engine.run_tick` connects a legal choice, simulation consequences, and publication; the worker drives it every ten minutes.
+The deterministic writing rule marks newly enabled or cancelled work, missed deadlines, inspections, refusals, personal-file discoveries/completion, and nonwork visits as candidates for publication. Routine collection, handoff without a new work consequence, first introductions alone, repeat encounters, and waiting stay silent unless another qualifying event occurred. The presence of an unresolved thread alone does not turn routine work into a candidate. No score model or random writing gate is used. `still.engine.run_tick` connects a legal choice, simulation consequences, and publication; the worker waits thirty minutes after each tick finishes.
 
 ## A life outside work
 
@@ -114,9 +114,9 @@ Published entries live in `entries`; SQLite triggers prohibit updates and delete
 
 ## Worker and hardware
 
-The worker starts one tick immediately on a new world, then persists the next eligible time as **completion + ten real minutes**. Restarting during rest preserves that time. Returning after a long gap runs at most one current tick, not a backlog. Restarting the viewer cannot advance the courier.
+The worker starts one tick immediately on a new world, then persists the next eligible time as **completion + thirty real minutes**. Restarting during rest preserves that time. Returning after a long gap runs at most one current tick, not a backlog. Restarting the viewer cannot advance the courier.
 
-A data-directory file lock plus a 90-second SQLite ownership lease rejects a second worker, including across native macOS and Docker (where `flock` alone is not shared). The lease is renewed alongside checkpoints and fenced at state/publication writes. An unclean kill may delay supervisor recovery until the old lease expires; graceful shutdown releases it immediately. `worker_runs` records attempts even if a crash interrupts inference before any legal action is applied. Interrupted publication is marked failed and never rewritten; recovery of an active attempt conservatively starts a fresh ten minutes of rest. Graceful shutdown waits for the active tick; Compose allows 30 seconds before killing it, after which crash recovery applies. `restart: unless-stopped` supervises the worker. Model failures are recorded and still incur the normal rest, not repeated rapid retries. Start the model before the worker if you want the first tick to have inference available.
+A data-directory file lock plus a 90-second SQLite ownership lease rejects a second worker, including across native macOS and Docker (where `flock` alone is not shared). The lease is renewed alongside checkpoints and fenced at state/publication writes. An unclean kill may delay supervisor recovery until the old lease expires; graceful shutdown releases it immediately. `worker_runs` records attempts even if a crash interrupts inference before any legal action is applied. Interrupted publication is marked failed and never rewritten; recovery of an active attempt conservatively starts a fresh thirty minutes of rest. Graceful shutdown waits for the active tick; Compose allows 30 seconds before killing it, after which crash recovery applies. `restart: unless-stopped` supervises the worker. Model failures are recorded and still incur the normal rest, not repeated rapid retries. Start the model before the worker if you want the first tick to have inference available.
 
 `STILL_MODEL_BASE_URL` defaults to `http://127.0.0.1:8080/v1` natively; the checked-in Compose configuration uses `http://host.docker.internal:8080/v1` for the Mac setup. Pi/Linux containers need a reachable endpoint configured for that deployment. `STILL_MODEL` defaults to `still`. `python -m still.worker --health` checks checkpoint freshness without initializing or changing the world.
 

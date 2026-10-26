@@ -32,7 +32,7 @@ class WorkerDatabaseTest(unittest.TestCase):
         finished = self.now + timedelta(seconds=90)
         with patch("still.worker.utcnow", side_effect=[self.now, finished]):
             self.assertTrue(asyncio.run(run_once(self.path, "http://local/v1", "still")))
-        self.assertEqual(next_tick(self.path), finished + timedelta(minutes=10))
+        self.assertEqual(next_tick(self.path), finished + timedelta(minutes=30))
         with session(self.path, readonly=True) as db:
             run = db.scalar(select(WorkerRun))
             self.assertEqual(run.finished_at, finished.isoformat(timespec="microseconds"))
@@ -56,7 +56,7 @@ class WorkerDatabaseTest(unittest.TestCase):
             prepare(self.path)
             self.assertTrue(asyncio.run(run_once(self.path, "http://local/v1", "still")))
         self.assertEqual(run_tick.call_count, 2)
-        self.assertEqual(next_tick(self.path), later + timedelta(minutes=10))
+        self.assertEqual(next_tick(self.path), later + timedelta(minutes=30))
 
     def test_crash_before_simulation_does_not_invent_an_action(self):
         with session(self.path) as db:
@@ -70,7 +70,7 @@ class WorkerDatabaseTest(unittest.TestCase):
             self.assertIsNone(db.scalar(select(Tick)))
             self.assertIsNone(db.scalar(select(Entry)))
             self.assertIn("interrupted", db.get(WorkerRun, "before-choice").error)
-        self.assertEqual(next_tick(self.path), later + timedelta(minutes=10))
+        self.assertEqual(next_tick(self.path), later + timedelta(minutes=30))
 
     def test_health_is_fresh_and_never_creates_a_missing_database(self):
         with patch("still.worker.utcnow", return_value=self.now):
@@ -127,4 +127,4 @@ class WorkerDatabaseTest(unittest.TestCase):
             self.assertEqual(db.get(Publication, result["id"]).status, "failed")
             self.assertIn("interrupted", db.get(WorkerRun, "interrupted").error)
             self.assertIsNone(db.get(WorkerState, 1).active_tick_key)
-        self.assertEqual(next_tick(self.path), resumed + timedelta(minutes=10))
+        self.assertEqual(next_tick(self.path), resumed + timedelta(minutes=30))
