@@ -25,14 +25,25 @@ class WorldViewTest(unittest.TestCase):
 
     def test_world_contains_real_state_and_readonly_navigation(self):
         body = world_page(self.path, now=self.now).body.decode()
-        for text in ("Courier", "Personal file", "Places and people", "Deliveries", "Recent changes",
-                     "old-index", "corrected directory index", "access request", "All times UTC"):
+        for text in ("Courier", "Personal file", "Places and people", "Parcel deliveries", "Recent changes",
+                     "old-index", "Corrected Directory Index", "Parcel 1", "Access Request", "All times UTC"):
             self.assertIn(text, body)
         self.assertNotIn("parcel-", body)
         self.assertIn('href="/world/view" aria-current="page"', body)
         self.assertIn('href="/"', body)
         self.assertIn("never advances it", body)
         self.assertNotIn("<button", body)
+
+    def test_carried_parcel_has_a_small_inline_icon(self):
+        with session(self.path) as db:
+            parcel = db.get(Delivery, "parcel-1")
+            parcel.id = "parcel-147"
+            parcel.contents = ""
+            parcel.status = "carried"
+        body = world_page(self.path, now=self.now).body.decode()
+        self.assertIn('class="parcel-icon"', body)
+        self.assertIn('Sealed Directory Copy · Parcel 147', body)
+        self.assertIn('aria-hidden="true"', body)
 
     def test_borrowed_notes_threads_and_relationship_memory_are_visible_and_escaped(self):
         with session(self.path) as db:
@@ -50,7 +61,7 @@ class WorldViewTest(unittest.TestCase):
         body = response.body.decode()
         self.assertEqual(response.status_code, 200)
         self.assertIn('Borrowed notes', body)
-        self.assertIn('repair-notes', body)
+        self.assertIn('The Misaligned Index', body)
         self.assertIn('Open threads', body)
         self.assertIn('Notes returned: 1; late: 1.', body)
         self.assertIn('&lt;script&gt;private note&lt;/script&gt;', body)
@@ -88,6 +99,24 @@ class WorldViewTest(unittest.TestCase):
         self.assertIn("Warmth", body)
         self.assertIn("41.0", body)
         self.assertGreater(body.index("Warmth"), body.index("<footer"))
+
+    def test_recent_changes_are_keyset_paginated(self):
+        with session(self.path) as db:
+            for index in range(10):
+                tick = Tick(tick_key=f"change-{index}", at=(self.now + timedelta(minutes=index)).isoformat(), action={"kind": "wait"}, hardware={})
+                db.add(tick)
+                db.flush()
+                db.add(Event(tick_id=tick.id, kind="inspection", facts={"text": f"Change {index}"}))
+        first = world_page(self.path, now=self.now).body.decode()
+        self.assertIn("Change 9", first)
+        self.assertIn("Change 2", first)
+        self.assertNotIn("Change 1</p>", first)
+        cursor = first.split("?before=", 1)[1].split('"', 1)[0]
+        older = world_page(self.path, now=self.now, before=int(cursor)).body.decode()
+        self.assertIn("Change 1", older)
+        self.assertIn("Change 0", older)
+        self.assertIn('href="/world/view">Latest changes', older)
+        self.assertNotIn("Change 9", older)
 
     def test_empty_deliveries_and_activity_remain_readable(self):
         with session(self.path) as db:

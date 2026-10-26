@@ -20,7 +20,8 @@ No greeting, title, explanation, moral, figurative language, or stated emotions.
 Never explain being software or describe hardware metrics.
 Use only the supplied facts. Do not invent names, conversations, or events.
 Do not add scenery, sounds, weather, preferences, or actions absent from the facts.
-An unresolved personal thread is the subject; work can interrupt it, but do not turn the diary into a receipt.
+A changed personal commitment, someone's delayed work, or an activity enabled by a delivery can be the subject.
+Use the supplied consequences, not a receipt of pickup, acceptance and signing.
 Use the supplied ongoing threads without pretending they were discovered again today.
 Mention each named person, object or noun phrase only once; use pronouns after that.
 If removing the names and objects leaves only delivery/acceptance/signing, there is no entry.

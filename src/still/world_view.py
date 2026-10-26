@@ -1,28 +1,30 @@
 """Read-only world overview, separate from the model and worker."""
 
 import logging
+import re
 from datetime import UTC, datetime
 from html import escape
 from pathlib import Path
 
 from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 
 from still.db import session
+from still.simulation import withdrawal
 from still.models import (
     Arrival, BackfillTick, Courier, Delivery, Encounter, Event,
     PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerState, WorldClock,
 )
 from still.viewer import _page, _utc, host_status, presence
-from still.world import READING_NAMES, delivery_description, personal_threads
+from still.world import book_title, delivery_description, job_details, personal_threads
 
 
 # Travel, collection, handover and meetings are steps, not changes: the delivery table already
 # shows route and status, and the people list already counts encounters. This feed exists to show
 # what actually changed, so it deliberately omits those routine kinds.
 CHANGE_KINDS = (
-    "work_arrived", "new_place", "deadline_missed", "inspection", "owner_followup",
+    "work_arrived", "work_enabled", "work_cancelled", "delivery_refused", "new_place", "deadline_missed", "inspection", "owner_followup",
     "file_recovered", "file_completed", "personal_visit", "personal_borrow", "personal_read",
     "personal_return", "personal_routine", "personal_refusal", "personal_help", "personal_deadline_missed",
 )
@@ -36,7 +38,16 @@ def _time(value: str) -> str:
     return f'<time datetime="{at.isoformat()}">{at:%d %b %Y · %H:%M} UTC</time>'
 
 
-def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
+def _parcel_label(delivery: Delivery) -> str:
+    description = delivery_description(delivery.id, delivery.contents)
+    number = re.fullmatch(r"parcel-([1-9][0-9]*)", delivery.id, re.IGNORECASE)
+    if not delivery.contents and number:
+        description = re.sub(r" \d+$", "", description)
+    description = description.title()
+    return f'{description} · Parcel {number[1]}' if number else description
+
+
+def world_page(path: Path, *, now: datetime | None = None, before: int | None = None) -> HTMLResponse:
     now = now or datetime.now(UTC)
     try:
         with session(path, readonly=True) as db:
@@ -57,18 +68,27 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
             deliveries = list(db.scalars(select(Delivery).order_by(
                 Delivery.created_at.desc(), Delivery.id
             ).limit(50)))
-            activity = list(db.execute(select(Event, Tick.at, BackfillTick.generated_at).join(
+            activity_query = select(Event, Tick.at, BackfillTick.generated_at).join(
                 Tick, Tick.id == Event.tick_id
             ).outerjoin(BackfillTick, BackfillTick.tick_id == Tick.id).where(
                 Event.kind.in_(CHANGE_KINDS)
-            ).order_by(Tick.at.desc(), Event.id.desc()).limit(8)))
+            ).order_by(Tick.at.desc(), Event.id.desc()).limit(9)
+            if before is not None:
+                cursor = db.get(Event, before)
+                if cursor is None:
+                    activity_query = activity_query.where(Event.id < 0)
+                else:
+                    cursor_at = db.scalar(select(Tick.at).where(Tick.id == cursor.tick_id))
+                    activity_query = activity_query.where(tuple_(Tick.at, Event.id) < (cursor_at, before))
+            activity = list(db.execute(activity_query))
             parts = [
                 '<div class="reading-heading"><h2>World</h2><a href="/world/view">Refresh world</a></div>',
                 '<p class="world-note">The recorded state behind the diary. Nothing here asks for a new entry.</p>',
                 '<section class="world-section"><h3>Courier</h3><dl class="world-facts">',
                 f'<dt>Location</dt><dd>{escape(names.get(courier.place_id, courier.place_id))}</dd>',
-                f'<dt>Carrying</dt><dd>{escape(delivery_description(carried.id, carried.contents)) if carried else "Nothing"}</dd>',
-                f'<dt>Borrowed notes</dt><dd>{escape(READING_NAMES[life.borrowed_from]) + " · return due " + _time(life.return_due_at) if life and life.borrowed_from else "Nothing"}</dd>',
+                f'<dt>Carrying</dt><dd>{"<svg class=\"parcel-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"m3 7 9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10M8 5l9 4\"/></svg>" if carried else ""}{escape(_parcel_label(carried)) if carried else "Nothing"}</dd>',
+                f'<dt>Withdrawal</dt><dd>{withdrawal(db, now=now)}</dd>',
+                f'<dt>Borrowed notes</dt><dd>{escape(book_title(db, life.borrowed_from)) + " · return due " + _time(life.return_due_at) if life and life.borrowed_from else "Nothing"}</dd>',
                 f'<dt>Life started</dt><dd>{_time(courier.started_at)}</dd>',
                 f'<dt>Next tick</dt><dd>{"In progress" if worker and worker.active_tick_key else (_time(worker.next_tick_at) if worker else "Not scheduled yet")}</dd>',
                 f'<dt>Last check-in</dt><dd>{_time(clock.last_seen) if clock else "Not recorded yet"}</dd>',
@@ -117,13 +137,15 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
                 for person in visitors:
                     parts.append(f'<li>{escape(person.name)} · {escape(person.role)}. Not permanent staff.</li>')
                 parts.append('</ul>')
-            parts.append('</section><section class="world-section"><h3>Deliveries</h3>')
+            parts.append('</section><section class="world-section"><h3>Parcel deliveries</h3>')
             if deliveries:
-                parts.append('<p class="world-note table-hint">Scroll sideways for status and due times.</p><div class="table-scroll" role="region" aria-label="Deliveries, scroll horizontally if needed" tabindex="0"><table><caption>Up to 50 most recent deliveries</caption><thead><tr><th scope="col">Contents</th><th scope="col">Route</th><th scope="col">Status</th><th scope="col">Due UTC</th></tr></thead><tbody>')
+                parts.append('<p class="world-note">Packages carried between places. This table records their route, current status and deadline.</p><p class="world-note table-hint">Scroll sideways for status and due times.</p><div class="table-scroll" role="region" aria-label="Parcel deliveries, scroll horizontally if needed" tabindex="0"><table><caption>Up to 50 most recent parcels</caption><thead><tr><th scope="col">Contents</th><th scope="col">Route</th><th scope="col">Status</th><th scope="col">Due UTC</th></tr></thead><tbody>')
                 status_labels = {"queued": "Queued", "carried": "Being carried", "delivered": "Delivered", "returned": "Returned", "lost": "Lost"}
                 for delivery in deliveries:
+                    purpose = job_details(db, delivery.id).get("purpose", "") if delivery.status in ("queued", "carried") else ""
+                    purpose_html = f'<p class="world-note">{escape(purpose)}</p>' if purpose else ""
                     parts.append(
-                        f'<tr><td>{escape(delivery_description(delivery.id, delivery.contents))}</td>'
+                        f'<tr><td>{escape(_parcel_label(delivery))}{purpose_html}</td>'
                         f'<td>{escape(names.get(delivery.origin_id, delivery.origin_id))}<br>to {escape(names.get(delivery.destination_id, delivery.destination_id))}</td>'
                         f'<td>{escape(status_labels.get(delivery.status, delivery.status))}</td><td>{_time(delivery.due_at)}</td></tr>'
                     )
@@ -131,14 +153,18 @@ def world_page(path: Path, *, now: datetime | None = None) -> HTMLResponse:
             else:
                 parts.append('<p class="world-note">No deliveries recorded.</p>')
             parts.append('</section><section class="world-section"><h3>Recent changes</h3>')
+            if before is not None:
+                parts.append('<p class="world-note"><a href="/world/view">Latest changes</a></p>')
             if activity:
                 parts.append('<ol class="world-activity" role="list">')
-                for index, (event, at, generated) in enumerate(activity):
+                for index, (event, at, generated) in enumerate(activity[:8]):
                     if generated and (index == 0 or activity[index - 1][2] != generated):
                         parts.append(f'<li class="world-backfill"><p class="world-note">Backdated: the changes below were generated {_time(generated)}, not recorded live.</p></li>')
                     parts.append(f'<li>{_time(at)}<p>{escape(event.facts["text"])}</p></li>')
                 parts.append('</ol>')
-                parts.append('<p class="world-note">Routine travel, collection and handover are not listed here; the deliveries table shows route and status.</p>')
+                if len(activity) > 8:
+                    parts.append(f'<nav class="pagination" aria-label="Recent changes pages"><a href="/world/view?before={activity[7][0].id}" rel="next">Older changes</a></nav>')
+                parts.append('<p class="world-note">Routine travel, collection and handover are not listed here; the parcel table shows route and status.</p>')
             else:
                 parts.append('<p class="world-note">No changes recorded yet. Quiet ticks do not appear here.</p>')
             parts.append('</section>')

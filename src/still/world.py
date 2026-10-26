@@ -8,10 +8,21 @@ from sqlalchemy import select
 
 from still.clock import timestamp
 from still.db import as_dict, create_tables, session
-from still.models import Courier, Delivery, PersonalFile, PersonalLife, Person, Place, Relationship
+from still.models import Courier, Delivery, Event, PersonalFile, PersonalLife, Person, Place, Relationship
 
 
-READING_NAMES = {"ivo": "repair-notes", "mara": "shared-paths"}
+READING_NAMES = {"ivo": "The Misaligned Index", "mara": "The Directory Without an Owner"}
+
+
+def named_book_title(db, person_id: str) -> str | None:
+    for facts in db.scalars(select(Event.facts).where(Event.kind == "personal_borrow").order_by(Event.id.desc())):
+        if facts.get("person_id") == person_id and facts.get("book_title"):
+            return facts["book_title"]
+    return None
+
+
+def book_title(db, person_id: str) -> str:
+    return named_book_title(db, person_id) or READING_NAMES[person_id]
 
 # What a round can be carrying, cycled by parcel number so consecutive rounds do not repeat.
 CONTENTS = (
@@ -22,11 +33,31 @@ CONTENTS = (
 # The route is not finished. A place and the person who keeps it are added one at a time as
 # work reaches them, in this order. Each is introduced by the round that first goes there.
 WORLD_GROWTH = (
-    ("bindery", "Bindery", "establishment", "nadia", "Nadia", "binder"),
-    ("goods-yard", "Goods yard", "depot", "oskar", "Oskar", "shunter"),
+    ("bindery", "Bindery", "establishment", "nadia", "Nadia", "binder", "mara"),
+    ("goods-yard", "Goods yard", "depot", "oskar", "Oskar", "shunter", "nadia"),
+    ("print-room", "Print room", "establishment", "elin", "Elin", "printer", "oskar"),
+    ("ferry-depot", "Ferry depot", "depot", "laleh", "Laleh", "ferry keeper", "elin"),
+    ("map-room", "Map room", "office", "tomas", "Tomas", "surveyor", "laleh"),
 )
 # Rounds between one new place and the next, counted in finished deliveries.
 GROWTH_INTERVAL = 6
+
+# Input, activity and output for each regular's work; these are world facts, not model inventions.
+WORK = {
+    "ivo": ("access request", "restore a damaged index", "restored index"),
+    "mara": ("corrected directory index", "reopen the directory register", "countersigned register"),
+    "nadia": ("spine repair order", "bind the loose directory volumes", "bound directory volume"),
+    "oskar": ("signed transfer form", "release the queued directory copies", "dispatch manifest"),
+    "elin": ("blank label sheet", "print replacement directory labels", "printed label bundle"),
+    "laleh": ("returned key tag", "open the locked transfer queue", "transfer receipt"),
+    "tomas": ("sealed directory copy", "revise the route index", "revised route map"),
+}
+
+
+def job_details(db, delivery_id: str) -> dict:
+    return db.scalar(select(Event.facts).where(
+        Event.kind == "work_arrived", Event.facts["delivery_id"].as_string() == delivery_id
+    ).order_by(Event.id).limit(1)) or {}
 
 
 def _initialize_life(db) -> None:
@@ -54,7 +85,7 @@ def personal_threads(db) -> list[str]:
         threads.append(text)
     if life and life.borrowed_from:
         person = db.get(Person, life.borrowed_from)
-        text = f"I owed {READING_NAMES[person.id]} back to {person.name} by {datetime.fromisoformat(life.return_due_at):%d %b %Y at %H:%M} UTC."
+        text = f"I owed {book_title(db, person.id)} back to {person.name} by {datetime.fromisoformat(life.return_due_at):%d %b %Y at %H:%M} UTC."
         text += f" My reading: {life.reading_note}" if life.read_during_loan else " I had not opened it yet."
         threads.append(text)
     for relationship in db.scalars(select(Relationship).where(Relationship.needs_help == 1).order_by(Relationship.person_id)):
@@ -62,7 +93,7 @@ def personal_threads(db) -> list[str]:
         threads.append(f"After my late return, {person.name} wanted help checking the shared path before lending again.")
     for memory in db.scalars(select(Relationship).where(Relationship.last_note != "").order_by(Relationship.person_id)):
         if not life or life.borrowed_from != memory.person_id:
-            threads.append(f"My last reading in {READING_NAMES[memory.person_id]}: {memory.last_note}")
+            threads.append(f"My last reading in {book_title(db, memory.person_id)}: {memory.last_note}")
     return threads[:2]
 
 
@@ -119,10 +150,22 @@ def snapshot(path: Path) -> dict:
             "personal_file": as_dict(db.get(PersonalFile, 1)),
             "personal_life": as_dict(db.get(PersonalLife, 1)),
             "personal_threads": personal_threads(db),
+            "books": {
+                person_id: {
+                    "title": named_book_title(db, person_id),
+                    "subject": subject,
+                }
+                for person_id, subject in {
+                    "ivo": "An incomplete repair path, corrected lines beside old versions, undated failures, and an earlier copy whose location is missing.",
+                    "mara": "An unnamed directory entry, a reference to a removed directory, two unmarked versions, and an unanswered question about deletion permissions.",
+                }.items()
+            },
             "relationships": [as_dict(row) for row in db.scalars(select(Relationship).order_by(Relationship.person_id))],
             "places": [as_dict(row) for row in db.scalars(select(Place).order_by(Place.id))],
             "people": [as_dict(row) for row in db.scalars(select(Person).order_by(Person.id))],
-            "deliveries": [{**as_dict(row), "description": delivery_description(row.id, row.contents)} for row in db.scalars(
+            "deliveries": [{**as_dict(row), "description": delivery_description(row.id, row.contents),
+                            **({"job": job_details(db, row.id)} if row.status in ("queued", "carried") else {})}
+                           for row in db.scalars(
                 select(Delivery).order_by(Delivery.due_at, Delivery.id)
             )],
         }

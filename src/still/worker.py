@@ -1,4 +1,4 @@
-"""Single writer: complete a tick, then rest one real hour."""
+"""Single writer: complete a tick, then rest ten real minutes."""
 
 import argparse
 import asyncio
@@ -22,7 +22,7 @@ from still.hardware import readings
 from still.world import initialize
 
 
-REST = timedelta(hours=1)
+REST = timedelta(minutes=10)
 log = logging.getLogger(__name__)
 
 

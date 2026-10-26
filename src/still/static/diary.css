@@ -60,6 +60,7 @@ main:focus { outline: none; }
 .world-facts { display: grid; grid-template-columns: minmax(6.5rem, 1fr) minmax(0, 2fr); gap: .75rem 1rem; margin: 0; }
 .world-facts dt { color: var(--muted); }
 .world-facts dd { margin: 0; }
+.parcel-icon { width: 1.1em; height: 1.1em; margin-right: .4em; vertical-align: -.18em; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
 .world-facts time, .world-activity time { font-variant-numeric: tabular-nums; font-size: .875rem; }
 .world-file { margin: 0; }
 .world-file figcaption { font-size: .875rem; }

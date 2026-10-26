@@ -12,7 +12,7 @@ from sqlalchemy import select, tuple_
 from sqlalchemy.exc import SQLAlchemyError
 
 from still.db import as_dict, session
-from still.models import BackfillTick, Courier, Entry, Event, Person, Place, Tick, WorkerRun, WorkerState, WorldClock
+from still.models import BackfillTick, Courier, Delivery, Entry, Event, Person, Place, Tick, WorkerRun, WorkerState, WorldClock
 
 
 PAGE_SIZE = 50
@@ -95,7 +95,17 @@ def _scene(db, place) -> str:
     if pose == "reading":
         # The held page is filled the same way, so it hides the coat it is read over.
         coat += '<path class="scene-solid" d="M18 54l14 3 15-3v15l-15 3-14-3z"/><path d="M32 57v15M18 54l14 3 15-3v15l-15 3-14-3z"/>'
-    companion = '<path class="scene-place" d="M144 94V22h34v72M170 57h2"/>'
+    elif db.scalar(select(Delivery.id).where(Delivery.status == "carried").limit(1)):
+        coat += '<path class="scene-solid scene-parcel" d="M9 52h23v18H9z"/><path d="M9 57h23M19 52v18M23 52v18"/>'
+    places = {
+        "bindery": "M116 94V64h64v30M124 64V43h48v21M148 19v24M137 19h22M127 53h42M126 75h44M126 81h44M126 87h44",
+        "goods-yard": "M110 94V38l36-20 36 20v56M119 94V48h54v46M123 91V72h22v19M148 91V72h22v19M136 68V49h22v19M134 72v8M159 72v8M147 49v8",
+        "print-room": "M115 94V57h66v37M126 57V20h42v37M133 29h28M133 36h24M124 68h48M131 80h32v14M170 76h2",
+        "ferry-depot": "M108 94h76M115 94V32h10v62M168 94V32h10v62M120 40h53M130 45v34h33V45M137 53h19M137 61h15M137 69h19",
+        "map-room": "M115 94V68h64v26M125 68l-6-41 47-8 8 49M130 39l11-6 12 11 11-8M134 49l12-8 10 13M139 29l9 31",
+    }
+    backdrop = places.get(place.id, "M144 94V22h34v72M170 57h2")
+    companion = f'<path class="scene-place" d="{backdrop}"/>'
     if person:
         companion = ('<g class="scene-companion" transform="translate(120 4)"><circle cx="32" cy="22" r="8"/>'
                      '<path d="M24 36l-8 9-3 24M40 36l8 9 3 24M24 36v42h16V36M27 79l-2 12h-5M37 79l2 12h5"/>'

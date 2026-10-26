@@ -66,6 +66,12 @@ The World page exposes borrowed notes, UTC return time, current private threads 
 
 Chrome checked the diary and World page at 1440px and 390px with isolated synthetic fixtures, including stale/error state and two recorded locations. No page overflow, prose overlap or animation. Evidence: `.impeccable/review/presence-*.png`. These are review captures, not shipping assets. The courier SVG is authored inline; no raster asset, external request, polling or inference is added. Static detection reported no findings; it is not a full semantic/accessibility audit. Live data and worker processes were not changed for this UI work, and the remote deployment was not verified.
 
+## Competing jobs and expanded SVG scenes
+
+**136 tests pass** natively with `uv run python -W error::ResourceWarning -m unittest discover -s tests`. New coverage checks competing pickup stops and deadlines, recipient-specific inputs, one-level follow-up dependencies, late recovery, cancellation on refusal, replay/restart preservation, transaction rollback, queue bounds after a long gap, hardware restrictions, recurring work for every regular, and consequence facts reaching the writer. Choice context excludes terminal deliveries; no additional inference call is added per tick.
+
+Five expanded stops have distinct static SVG backdrops. A parcel appears only while one is actually carried. Chrome rendered isolated synthetic fixtures at 1440px and 390px; the document did not overflow horizontally (the delivery table retains its own horizontal scroll). The scene gallery and page captures were inspected under `/tmp/still-work-review/`. No live state or diary entries were changed for these checks. The drawings preserve the existing low-contrast decorative line style. This is not a real-model, Docker, Pi-load or thermal verification.
+
 ## Limits of this evidence
 
 Hourly cadence and long gaps were tested deterministically rather than by waiting a full week. Pi operation is confirmed separately above, but no multi-day soak duration, Pi-specific performance measurements or thermal calibration are documented here. Neither deployment nor these checks guarantee future model factuality or prose quality. The starter world can still produce long silences under its intentionally simple writing gate. See README for operational limits and deferred features.

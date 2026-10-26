@@ -28,7 +28,7 @@ class EngineTest(unittest.TestCase):
     @patch("still.engine.complete")
     def test_choice_schema_and_validation(self, complete):
         actions = [{"kind": "move", "place_id": "repair-shop"}, {"kind": "wait"}]
-        complete.return_value = '{"choice":0}'
+        complete.return_value = '{"choice":0,"book_title":null}'
         self.assertEqual(choose("http://local/v1", "still", actions, {}), actions[0])
         schema = complete.call_args.kwargs["response_format"]["json_schema"]["schema"]
         self.assertEqual(schema["properties"]["choice"]["enum"], [0, 1])
@@ -37,13 +37,32 @@ class EngineTest(unittest.TestCase):
             {"choice": 0, "action": actions[0]}, {"choice": 1, "action": actions[1]},
         ])
         for value in [True, -1, 2, "0", None]:
-            complete.return_value = json.dumps({"choice": value})
+            complete.return_value = json.dumps({"choice": value, "book_title": None})
             with self.subTest(value=value), self.assertRaises(ValueError):
                 choose("http://local/v1", "still", actions, {})
-        for text in ['[]', '{"choice":0,"extra":1}', 'not json']:
+        for text in ['[]', '{"choice":0,"book_title":null,"extra":1}', '{"choice":0}', 'not json']:
             complete.return_value = text
             with self.subTest(text=text), self.assertRaises(ValueError):
                 choose("http://local/v1", "still", actions, {})
+
+    @patch("still.engine.complete")
+    def test_choice_can_name_a_book_only_when_borrowing(self, complete):
+        actions = [{"kind": "borrow_notes", "person_id": "ivo"}, {"kind": "wait"}]
+        complete.return_value = '{"choice":0,"book_title":"The Queue at Dawn"}'
+        self.assertEqual(choose("http://local/v1", "still", actions, {}), {
+            **actions[0], "_book_title": "The Queue at Dawn",
+        })
+        for title in [None, "", "x" * 81, "bad\ntitle"]:
+            complete.return_value = json.dumps({"choice": 0, "book_title": title})
+            with self.subTest(title=title), self.assertRaises(ValueError):
+                choose("http://local/v1", "still", actions, {})
+        complete.return_value = '{"choice":1,"book_title":"not allowed"}'
+        with self.assertRaises(ValueError):
+            choose("http://local/v1", "still", actions, {})
+        complete.return_value = '{"choice":0,"book_title":null}'
+        self.assertEqual(choose("http://local/v1", "still", actions, {
+            "books": {"ivo": {"title": "The Queue at Dawn"}},
+        }), actions[0])
 
     @patch("still.engine.generate", return_value="I went to the Repair shop. I met Ivo there.")
     @patch("still.engine.choose", return_value={"kind": "visit", "person_id": "ivo"})

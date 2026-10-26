@@ -9,12 +9,13 @@ from sqlalchemy.orm import Session
 from still.clock import timestamp
 from still.db import require_owner, session
 from still.hardware import under_pressure
-from still.models import Arrival, Courier, Delivery, Encounter, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerLease
-from still.world import CONTENTS, GROWTH_INTERVAL, READING_NAMES, WORLD_GROWTH, delivery_description
+from still.models import Arrival, Courier, Delivery, Encounter, Entry, Event, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerLease
+from still.world import GROWTH_INTERVAL, READING_NAMES, WORK, WORLD_GROWTH, book_title as saved_book_title, delivery_description, job_details, named_book_title
 
 
 WRITING_EVENTS = {"deadline_missed", "delivery_failed", "delivery_refused", "inspection", "file_recovered", "file_completed", "personal_visit",
-                  "owner_followup", "personal_borrow", "personal_read", "personal_return", "personal_deadline_missed", "personal_refusal", "personal_help"}
+                  "owner_followup", "personal_borrow", "personal_read", "personal_return", "personal_deadline_missed", "personal_refusal", "personal_help", "work_enabled", "work_cancelled"}
+JOB_INTERVAL = timedelta(hours=6)
 # A handover offered this long after its deadline is refused outright rather than accepted late.
 REFUSAL_AFTER = timedelta(hours=12)
 READINGS = {
@@ -46,6 +47,26 @@ FILE_VISITS = (
     "I showed Ivo the empty owner field in {name}. He asked for the missing name. I had only the empty field.",
     "I showed Ivo the file I'd recovered. He looked at the empty owner field. He handed it back without filling it in.",
 )
+
+
+def withdrawal(db: Session, hardware: dict | None = None, *, now: datetime | None = None) -> int:
+    now = now or datetime.now(UTC)
+    score = 2 if under_pressure(hardware or {}) else 0
+    score += 3 if db.scalar(select(Relationship.person_id).where(Relationship.refused_at.is_not(None)).limit(1)) else 0
+    life = db.get(PersonalLife, 1)
+    if life.borrowed_from:
+        score += 2
+        score -= 2 if not life.read_during_loan else 0
+    if life.reply_at and datetime.fromisoformat(life.reply_at) <= now:
+        score -= 2
+    entry = db.scalar(select(Entry).order_by(Entry.at.desc(), Entry.id.desc()).limit(1))
+    if entry:
+        score += min(3, max(0, (now.date() - datetime.fromisoformat(entry.at).date()).days))
+    missed = db.scalar(select(func.count(Event.id)).join(Tick).where(
+        Event.kind == "deadline_missed", Tick.at >= timestamp(now - timedelta(days=2))
+    )) or 0
+    score += min(2, missed)
+    return min(10, max(0, score))
 
 
 def legal_actions(db: Session, hardware: dict | None = None, *, now: datetime | None = None) -> list[dict]:
@@ -103,7 +124,17 @@ def legal_actions(db: Session, hardware: dict | None = None, *, now: datetime | 
                     actions.append({"kind": "borrow_notes", "person_id": person_id})
     if under_pressure(hardware or {}):
         actions = [action for action in actions if action["kind"] == "deliver"]
-    return actions + [{"kind": "wait"}]
+    actions.append({"kind": "wait"})
+    score = withdrawal(db, hardware, now=now)
+    if score >= 7:
+        personal_kinds = {"restore_file", "visit", "follow_owner", "read_notes", "return_notes", "help_person", "borrow_notes"}
+        rank = lambda action: (0 if action["kind"] in personal_kinds else 1 if action["kind"] == "wait" else 2)
+        actions.sort(key=rank)
+    elif score >= 4:
+        index = next((i for i, action in enumerate(actions) if action["kind"] == "wait"), len(actions) - 1)
+        if index:
+            actions.insert(index - 1, actions.pop(index))
+    return actions
 
 
 def options(path: Path, hardware: dict | None = None, *, now: datetime | None = None) -> list[dict]:
@@ -113,6 +144,19 @@ def options(path: Path, hardware: dict | None = None, *, now: datetime | None = 
 
 def _event(db, tick_id, kind, text, *, event_key=None, **facts):
     db.add(Event(tick_id=tick_id, kind=kind, facts={"text": text, **facts}, event_key=event_key))
+
+
+def _job(db, tick_id, now, sender, recipient, contents, hours, *, activity=None, output=None, prerequisite=None):
+    # Tick-scoped ids keep new jobs distinct from older parcel-N imports.
+    identifier = f"job-{tick_id}-{sender.id}-{recipient.id}"
+    db.add(Delivery(id=identifier, sender_id=sender.id, recipient_id=recipient.id,
+                    origin_id=sender.place_id, destination_id=recipient.place_id,
+                    created_at=timestamp(now), due_at=timestamp(now + timedelta(hours=hours)), contents=contents))
+    purpose = (f"{recipient.name} needed the {contents} to {activity}." if activity else
+               f"{recipient.name} needed the {contents} to compare with the records at the {recipient.place.name}.")
+    _event(db, tick_id, "work_arrived", f"The {contents} was waiting at the {sender.place.name}. {purpose}",
+           delivery_id=identifier, purpose=purpose, activity=activity, output=output, prerequisite=prerequisite)
+    return identifier
 
 
 def _encounter(db, tick_id, person, place, at):
@@ -140,7 +184,7 @@ def _result(db, tick_id):
 
 
 def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict | None = None,
-         *, owner: str | None = None, grow: bool = True) -> dict:
+         *, owner: str | None = None, grow: bool = True, book_title: str | None = None) -> dict:
     """Apply one legal action. Reusing a tick key returns its frozen result."""
     at = timestamp(now)
     if not isinstance(tick_key, str) or not tick_key.strip():
@@ -152,6 +196,10 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         existing = db.scalar(select(Tick).where(Tick.tick_key == tick_key))
         if existing:
             return _result(db, existing.id)
+        if book_title is not None:
+            if action.get("kind") != "borrow_notes" or not isinstance(book_title, str) or not book_title.strip() or len(book_title.strip()) > 80 or any(ord(char) < 32 for char in book_title):
+                raise ValueError("book title requires a borrow action and 1–80 characters of plain text")
+            book_title = book_title.strip()
         last = db.scalar(select(Tick).order_by(Tick.at.desc(), Tick.id.desc()).limit(1))
         if last and at < last.at:
             raise ValueError("tick time cannot run backwards")
@@ -166,8 +214,10 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
         )).all():
             event_key = f"late:{parcel.id}"
             if db.scalar(select(Event.id).where(Event.event_key == event_key)) is None:
+                job = job_details(db, parcel.id)
+                consequence = f" {parcel.recipient.name}'s work was held up. {job['purpose']}" if job.get("purpose") else ""
                 _event(db, tick_id, "deadline_missed",
-                       f"The deadline for the {delivery_description(parcel.id, parcel.contents)} at the {parcel.destination.name} had passed. It was still undelivered.",
+                       f"The deadline for the {delivery_description(parcel.id, parcel.contents)} at the {parcel.destination.name} had passed. It was still undelivered.{consequence}",
                        event_key=event_key, delivery_id=parcel.id)
 
         life = db.get(PersonalLife, 1)
@@ -178,7 +228,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 person = db.get(Person, memory.person_id)
                 _event(db, tick_id, "personal_deadline_missed",
                        f"I still had {person.name}'s borrowed notes after the time I had promised to return them.",
-                       event_key=key, person_id=person.id, file_name=READING_NAMES[person.id])
+                       event_key=key, person_id=person.id, file_name=saved_book_title(db, person.id))
 
         kind = action["kind"]
         if kind == "move":
@@ -202,10 +252,26 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 _event(db, tick_id, "delivery_refused",
                        f"{parcel.recipient.name} would not take the {delivery_description(parcel.id, parcel.contents)}. It was too late to hand over, so I carried it back.",
                        delivery_id=parcel.id, recipient_id=parcel.recipient_id)
+                job = job_details(db, parcel.id)
+                if job.get("activity"):
+                    _event(db, tick_id, "work_cancelled",
+                           f"{parcel.recipient.name} could no longer {job['activity']} with this delivery. The {job['output']} would not be ready for collection.",
+                           delivery_id=parcel.id, person_id=parcel.recipient_id)
             else:
                 parcel.status = "delivered"
                 _event(db, tick_id, "delivered", f"I delivered the {delivery_description(parcel.id, parcel.contents)} to {parcel.recipient.name}. They accepted it and signed for it.",
                        delivery_id=parcel.id, recipient_id=parcel.recipient_id)
+                job = job_details(db, parcel.id)
+                if job.get("activity"):
+                    people = list(db.scalars(select(Person).where(
+                        Person.id.in_(WORK), Person.place_id != parcel.destination_id
+                    ).order_by(Person.id)))
+                    recipient = people[tick_id % len(people)]
+                    followup = _job(db, tick_id, now, parcel.recipient, recipient, job["output"], 6,
+                                    prerequisite=parcel.id)
+                    _event(db, tick_id, "work_enabled",
+                           f"{parcel.recipient.name} used the {delivery_description(parcel.id, parcel.contents)} to {job['activity']}. The {job['output']} was ready to send to {recipient.name}.",
+                           delivery_id=parcel.id, person_id=parcel.recipient_id, followup_id=followup)
                 if at > parcel.due_at:
                     inspector = db.get(Person, "inspector-ren")
                     if inspector is None:
@@ -243,7 +309,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             memory.last_note = life.reading_note
             life.read_during_loan = 1
             memory.read_count += 1
-            title = READING_NAMES[memory.person_id]
+            title = saved_book_title(db, memory.person_id)
             verb = "read" if novel else "reread"
             _event(db, tick_id, "personal_read" if novel else "personal_routine",
                    f"I {verb} {title}. {life.reading_note}", file_name=title, person_id=memory.person_id)
@@ -252,7 +318,7 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             memory = db.get(Relationship, person.id)
             db.get(Courier, 1).place_id = person.place_id
             _encounter(db, tick_id, person, person.place.name, at)
-            title = READING_NAMES[person.id]
+            title = saved_book_title(db, person.id)
             event_kind = "personal_routine"
             if kind == "follow_owner":
                 personal = db.get(PersonalFile, 1)
@@ -282,8 +348,10 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                     life.borrowed_from, life.borrowed_at = person.id, at
                     life.return_due_at = timestamp(now + timedelta(hours=24))
                     life.read_during_loan, life.reading_note = 0, ""
+                    recorded_title = named_book_title(db, person.id)
+                    title = recorded_title or book_title or title
                     text = f"I borrowed {title} from {person.name}. They left their place marked and asked for it back the following day."
-                    event_kind = "personal_borrow" if memory.loans == 1 else "personal_routine"
+                    event_kind = "personal_borrow" if memory.loans == 1 or recorded_title is None else "personal_routine"
             elif kind == "return_notes":
                 late = at > life.return_due_at
                 memory.returns += 1
@@ -306,7 +374,8 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 memory.needs_help, memory.refused_at = 0, None
                 event_kind = "personal_help"
             _event(db, tick_id, event_kind, text, person_id=person.id,
-                   file_name=personal.name if kind == "follow_owner" else title)
+                   file_name=personal.name if kind == "follow_owner" else title,
+                   **({"book_title": title} if kind == "borrow_notes" and event_kind == "personal_borrow" else {}))
         else:
             if under_pressure(hardware or {}):
                 _event(db, tick_id, "slowed", "Moving was slow. I stayed where I was.")
@@ -314,11 +383,9 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
                 _event(db, tick_id, "waited", "I stayed where I was for a while.")
 
         active = db.scalar(select(Delivery.id).where(Delivery.status.in_(ACTIVE_STATUSES)).limit(1))
-        if active is None and db.scalar(select(Delivery.id).where(
-            Delivery.created_at.startswith(at[:10])
-        ).limit(1)) is None:
-            # An exhausted round stays finished for the day, leaving time for a private life.
-            count = db.scalar(select(func.count()).select_from(Delivery))
+        last_job = db.scalar(select(func.max(Delivery.created_at)))
+        if active is None and (last_job is None or now >= datetime.fromisoformat(last_job) + JOB_INTERVAL):
+            # Open one current batch, never catch up missed batches after downtime.
             growth = next((entry for entry in WORLD_GROWTH if db.get(Place, entry[0]) is None), None)
             last_growth = db.scalar(select(Tick.at).join(Event, Event.tick_id == Tick.id).where(
                 Event.kind == "new_place"
@@ -328,27 +395,27 @@ def tick(path: Path, tick_key: str, now: datetime, action: dict, hardware: dict 
             )) if last_growth else GROWTH_INTERVAL
             if grow and growth and opened >= GROWTH_INTERVAL:
                 # Work reaches a place the route has not covered before, and the person who keeps it.
-                place_id, place_name, place_kind, person_id, person_name, role = growth
+                place_id, place_name, place_kind, person_id, person_name, role, recipient_id = growth
                 db.add(Place(id=place_id, name=place_name, kind=place_kind))
                 db.flush()
                 db.add(Person(id=person_id, name=person_name, role=role, place_id=place_id))
                 db.flush()
-                sender, recipient, origin, destination = person_id, "mara", place_id, "records-office"
+                recipient = db.get(Person, recipient_id)
+                growth_pair = (db.get(Person, person_id), recipient)
                 _event(db, tick_id, "new_place",
                        f"Work reached the {place_name} for the first time. {person_name} kept the counter there.",
                        place_id=place_id, person_id=person_id)
             else:
-                sender, recipient, origin, destination = (
-                    ("ivo", "mara", "repair-shop", "records-office") if count % 2 == 0
-                    else ("mara", "ivo", "records-office", "repair-shop")
-                )
-            identifier = f"parcel-{tick_id + 2}"
-            load = CONTENTS[count % len(CONTENTS)]
-            db.add(Delivery(id=identifier, sender_id=sender, recipient_id=recipient,
-                            origin_id=origin, destination_id=destination, created_at=at,
-                            due_at=timestamp(now + timedelta(hours=6)), contents=load))
-            _event(db, tick_id, "work_arrived", f"The {load} was waiting on the route.",
-                   delivery_id=identifier)
+                growth_pair = None
+            people = list(db.scalars(select(Person).where(Person.id.in_(WORK)).order_by(Person.id)))
+            batches = db.scalar(select(func.count(func.distinct(Event.tick_id))).where(
+                Event.kind == "work_arrived", Event.facts["activity"].as_string().is_not(None)
+            )) or 0
+            first = batches % len(people)
+            sender, recipient = growth_pair or (people[first], people[(first + 1) % len(people)])
+            for sender, recipient, hours in ((sender, recipient, 2), (recipient, sender, 4)):
+                contents, activity, output = WORK[recipient.id]
+                _job(db, tick_id, now, sender, recipient, contents, hours, activity=activity, output=output)
         kinds = set(db.scalars(select(Event.kind).where(Event.tick_id == tick_id)))
         current.publish = int(bool(kinds & WRITING_EVENTS))
         return _result(db, tick_id)

@@ -21,6 +21,10 @@ class ContinuingLifeTest(unittest.TestCase):
         self.path = Path(directory.name) / 'world.sqlite3'
         self.start = datetime(2026, 10, 19, tzinfo=UTC)
         initialize(self.path, self.start)
+        # These fixtures isolate loan/reply timing from recurring work.
+        self.batch_interval = patch('still.simulation.JOB_INTERVAL', timedelta(days=365))
+        self.batch_interval.start()
+        self.addCleanup(self.batch_interval.stop)
         self.number = 0
 
     def at(self, hour):
@@ -81,6 +85,31 @@ class ContinuingLifeTest(unittest.TestCase):
         self.assertTrue(all('owner field' not in text for text in state['personal_threads']))
         self.assertIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(42)))
 
+    @patch('still.engine.generate', side_effect=ValueError('no publication in naming test'))
+    @patch('still.engine.complete', return_value='{"choice":0,"book_title":"The Missing Inode"}')
+    def test_model_book_title_persists_across_reading_return_and_restart(self, complete, generate):
+        self.resolve_owner()
+        with session(self.path) as db:
+            for delivery in db.scalars(select(Delivery)):
+                delivery.status = 'delivered'
+        run_tick(self.path, 'named-book', 'http://local/v1', 'still', now=self.at(42))
+        self.assertEqual(snapshot(self.path)['books']['ivo']['title'], 'The Missing Inode')
+        initialize(self.path, self.at(43))
+        read = self.act('read_notes', 43)
+        self.assertIn('The Missing Inode', ' '.join(event['text'] for event in read['events']))
+        moment, references = writing_moment(self.path, read)
+        self.assertIn('The Missing Inode', moment)
+        self.assertIn('The Missing Inode', references)
+        returned = self.act('return_notes', 44, 'ivo')
+        self.assertIn('The Missing Inode', ' '.join(event['text'] for event in returned['events']))
+        with session(self.path) as db:
+            for delivery in db.scalars(select(Delivery)):
+                delivery.status = 'delivered'
+        tick(self.path, 'same-book', self.at(68), {'kind': 'borrow_notes', 'person_id': 'ivo'},
+             book_title='A Different Name')
+        self.assertEqual(snapshot(self.path)['books']['ivo']['title'], 'The Missing Inode')
+        self.assertEqual(complete.call_count, 1)
+
     def test_reading_and_returning_leave_memory_and_a_persistent_promise(self):
         self.resolve_owner()
         self.act('borrow_notes', 42, 'ivo')
@@ -91,9 +120,9 @@ class ContinuingLifeTest(unittest.TestCase):
         self.assertTrue(read['publish'])
         self.assertIn('missing part', snapshot(self.path)['personal_life']['reading_note'])
         moment, references = writing_moment(self.path, read)
-        self.assertIn('I owed repair-notes back to Ivo', moment)
+        self.assertIn('I owed The Misaligned Index back to Ivo', moment)
         self.assertIn('My reading:', moment)
-        self.assertIn('repair-notes', references)
+        self.assertIn('The Misaligned Index', references)
         with self.assertRaisesRegex(ValueError, 'illegal'):
             self.act('read_notes', 43)
         with self.assertRaisesRegex(ValueError, 'illegal'):
@@ -103,7 +132,7 @@ class ContinuingLifeTest(unittest.TestCase):
         self.assertIsNone(state['personal_life']['borrowed_from'])
         self.assertEqual(state['relationships'][0]['returns'], 1)
         self.assertIn('missing part', state['relationships'][0]['last_note'])
-        self.assertIn('My last reading in repair-notes', ' '.join(state['personal_threads']))
+        self.assertIn('My last reading in The Misaligned Index', ' '.join(state['personal_threads']))
         self.assertNotIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(67)))
         self.assertIn({'kind': 'borrow_notes', 'person_id': 'ivo'}, options(self.path, now=self.at(68)))
 

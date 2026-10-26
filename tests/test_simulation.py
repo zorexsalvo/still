@@ -35,7 +35,7 @@ class SimulationTest(unittest.TestCase):
 
     def test_a_new_place_and_person_arrive_with_the_round_that_reaches_them(self):
         finish_seeded_round(self.path)
-        # An exhausted round stays finished for its UTC day, so the next round opens tomorrow.
+        # The next observed batch reaches the first authored stop.
         opened = self.act({"kind": "wait"}, 24)
         self.assertIn("new_place", [event["kind"] for event in opened["events"]])
         state = snapshot(self.path)
@@ -45,11 +45,14 @@ class SimulationTest(unittest.TestCase):
         # The round starts there, so the new place becomes somewhere the courier can travel.
         self.assertIn({"kind": "move", "place_id": "bindery"}, options(self.path))
         self.assertNotIn(("goods-yard", "Goods yard"), [(place["id"], place["name"]) for place in state["places"]])
+        parcel = next(parcel for parcel in state["deliveries"] if parcel["sender_id"] == "nadia")
+        self.assertEqual((parcel["sender_id"], parcel["recipient_id"], parcel["origin_id"], parcel["destination_id"]),
+                         ("nadia", "mara", "bindery", "records-office"))
 
     def test_the_route_grows_one_place_at_a_time_and_stops_when_the_list_runs_out(self):
         finish_seeded_round(self.path)
         introduced = []
-        for day in range(1, 4 * GROWTH_INTERVAL + 2):
+        for day in range(1, (len(WORLD_GROWTH) + 1) * GROWTH_INTERVAL + 2):
             self.act({"kind": "wait"}, 24 * day)
             introduced = [(place["id"], place["name"]) for place in snapshot(self.path)["places"]]
             if len(introduced) > 3 + len(WORLD_GROWTH):
@@ -58,6 +61,9 @@ class SimulationTest(unittest.TestCase):
         self.assertEqual(3 + len(WORLD_GROWTH), len(introduced))
         self.assertIn(("bindery", "Bindery"), introduced)
         self.assertIn(("goods-yard", "Goods yard"), introduced)
+        self.assertIn(("print-room", "Print room"), introduced)
+        self.assertIn(("ferry-depot", "Ferry depot"), introduced)
+        self.assertIn(("map-room", "Map room"), introduced)
 
     def test_legal_route_and_quiet_ticks(self):
         self.assertNotIn({"kind": "collect", "delivery_id": "parcel-1"}, options(self.path))
@@ -96,22 +102,22 @@ class SimulationTest(unittest.TestCase):
     def test_move_biased_choices_still_complete_deliveries_over_a_day(self):
         completed = []
         for hour in range(24):
-            actions = options(self.path)
+            now = self.now + timedelta(hours=hour)
+            actions = options(self.path, now=now)
             # Reproduce the model's old travel preference, without letting it wait forever.
             action = next((action for action in actions if action["kind"] == "move"), actions[0])
             result = self.act(action, hour)
             if any(event["kind"] == "delivered" for event in result["events"]):
                 self.assertEqual(result["publish"], any(
-                    event["kind"] in ("inspection", "deadline_missed") for event in result["events"]
+                    event["kind"] in ("inspection", "deadline_missed", "work_enabled") for event in result["events"]
                 ))
             completed.extend(event["delivery_id"] for event in result["events"] if event["kind"] == "delivered")
-        self.assertEqual(len(completed), 3)  # Initial round, then one new delivery next UTC day.
+        self.assertGreater(len(completed), 3)  # Competing batches return without waiting for UTC midnight.
         self.assertIn("parcel-1", completed)
         self.assertIn("parcel-2", completed)
 
-    def test_consecutive_rounds_do_not_carry_the_same_load(self):
-        # Rounds are created one per UTC day and their ids advance in fixed steps, so a load derived
-        # from the id alone repeats forever. Each round chooses and stores its own.
+    def test_competing_jobs_carry_inputs_their_recipients_need(self):
+        # Loads now follow the recipient's work instead of an unrelated parcel-number cycle.
         finish_seeded_round(self.path)
         for day in range(1, 8):
             self.act({"kind": "wait"}, 24 * day, grow=False)
@@ -122,12 +128,13 @@ class SimulationTest(unittest.TestCase):
             ).order_by(Delivery.created_at))]
         self.assertGreaterEqual(len(created), 5)
         self.assertTrue(all(created), "every round records what it carries")
-        self.assertEqual(len(set(created)), len(created), "consecutive rounds repeat a load")
+        self.assertEqual(set(created), {"access request", "corrected directory index"})
+        self.assertTrue(all(created[i] != created[i + 1] for i in range(0, len(created), 2)))
 
     def test_writer_facts_describe_contents_not_internal_parcel_ids(self):
         facts = []
         for hour in range(24):
-            result = self.act(options(self.path)[0], hour)
+            result = self.act(options(self.path, now=self.now + timedelta(hours=hour))[0], hour)
             facts.extend(event["text"] for event in result["events"])
         prose = " ".join(facts)
         self.assertNotIn("parcel-", prose.lower())
@@ -187,7 +194,7 @@ class SimulationTest(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM arrivals").fetchone()[0], 1)
             self.assertEqual(connection.execute("SELECT count FROM encounters WHERE person_id = 'inspector-ren'").fetchone()[0], 1)
         state = snapshot(self.path)
-        self.assertEqual(len(state["deliveries"]), 3)  # Fresh work after the queue is finished.
+        self.assertEqual(len(state["deliveries"]), 4)  # A competing pair after the seed queue is finished.
         self.assertEqual(sum(item["status"] == "carried" for item in state["deliveries"]), 1)
 
     def test_nighttime_is_not_forced_sleep(self):

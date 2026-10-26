@@ -10,7 +10,7 @@ from still.db import session
 from still.models import BackfillTick, Courier, Entry, PersonalFile, PersonalLife, Person, Place, Relationship, Tick, WorkerRun, WorkerState, WorldClock
 from still.simulation import tick
 from still.viewer import PAGE_SIZE, diary, published
-from still.world import initialize
+from still.world import WORLD_GROWTH, initialize
 
 
 class ViewerTest(unittest.TestCase):
@@ -170,6 +170,29 @@ class ViewerTest(unittest.TestCase):
         body = diary(self.path, now=self.now).body.decode()
         self.assertEqual(1, body.count('class="scene-solid"'))
         self.assertIn('Still waiting', body)
+
+    def test_parcel_is_drawn_only_while_it_is_carried(self):
+        tick(self.path, 'parcel-move', self.now, {'kind': 'move', 'place_id': 'repair-shop'})
+        self.assertNotIn('scene-parcel', diary(self.path, now=self.now).body.decode())
+        tick(self.path, 'parcel-collect', self.now, {'kind': 'collect', 'delivery_id': 'parcel-1'})
+        self.assertIn('scene-parcel', diary(self.path, now=self.now).body.decode())
+        tick(self.path, 'parcel-travel', self.now, {'kind': 'move', 'place_id': 'records-office'})
+        tick(self.path, 'parcel-deliver', self.now, {'kind': 'deliver', 'delivery_id': 'parcel-1'})
+        self.assertNotIn('scene-parcel', diary(self.path, now=self.now).body.decode())
+
+    def test_expanded_stops_have_distinct_static_svg_scenes(self):
+        scenes = set()
+        for place_id, name, kind, _, _, _, _ in WORLD_GROWTH:
+            with self.subTest(place=place_id), session(self.path) as db:
+                db.add(Place(id=place_id, name=name, kind=kind))
+                db.flush()
+                db.get(Courier, 1).place_id = place_id
+            body = diary(self.path, now=self.now).body.decode()
+            scenes.add(body.split('class="scene-place" d="', 1)[1].split('"', 1)[0])
+            self.assertIn(f'{name} · recorded location', body)
+            self.assertNotIn('class="scene-companion"', body)
+            self.assertIn('aria-hidden="true"', body)
+        self.assertEqual(len(scenes), len(WORLD_GROWTH))
 
     def test_reading_scene_does_not_invent_the_lenders_presence(self):
         with session(self.path) as db:

@@ -87,21 +87,23 @@ class PersonalLifeTest(unittest.TestCase):
             tick(self.path, "too-hot", self.now, {"kind": "restore_file"}, hardware)
         self.assertEqual(snapshot(self.path)["personal_file"]["progress"], 0)
 
-    def test_finished_round_leaves_free_time_and_work_returns_next_day(self):
-        for hour in range(7):
-            work = [action for action in options(self.path) if action["kind"] in ("move", "collect", "deliver")]
+    def test_finished_round_leaves_free_time_until_the_next_six_hour_batch(self):
+        for step in range(7):
+            hour = step / 6
+            work = [action for action in options(self.path, now=self.now + timedelta(hours=hour))
+                    if action["kind"] in ("move", "collect", "deliver")]
             self.act(work[0], hour)
         state = snapshot(self.path)
         self.assertEqual(len(state["deliveries"]), 2)
         self.assertTrue(all(delivery["status"] == "delivered" for delivery in state["deliveries"]))
         self.assertIn({"kind": "restore_file"}, options(self.path))
-        self.act({"kind": "wait"}, 10)
+        self.act({"kind": "wait"}, 5)
         self.assertEqual(len(snapshot(self.path)["deliveries"]), 2)
-        result = self.act({"kind": "wait"}, 12)  # Next UTC midnight, not a forced sleep window.
+        result = self.act({"kind": "wait"}, 6)
         self.assertIn("work_arrived", [event["kind"] for event in result["events"]])
-        self.assertEqual(len(snapshot(self.path)["deliveries"]), 3)
-        self.act({"kind": "wait"}, 13)
-        self.assertEqual(len(snapshot(self.path)["deliveries"]), 3)
+        self.assertEqual(len(snapshot(self.path)["deliveries"]), 4)
+        self.act({"kind": "wait"}, 7)
+        self.assertEqual(len(snapshot(self.path)["deliveries"]), 4)
 
     def test_existing_world_gets_project_without_resetting_the_courier(self):
         with session(self.path) as db:

@@ -59,8 +59,8 @@ def world() -> dict:
 
 
 @app.get("/world/view", response_class=HTMLResponse)
-def world_view() -> HTMLResponse:
-    return world_page(app.state.db_path)
+def world_view(before: int | None = None) -> HTMLResponse:
+    return world_page(app.state.db_path, before=before)
 
 
 def main() -> None:

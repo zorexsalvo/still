@@ -12,7 +12,7 @@ from still.db import as_dict, require_owner, session
 from still.models import BackfillTick, Delivery, Entry, Event, PersonalFile, Person, Place, Publication, Tick, WorkerLease
 from still.prose import complete, generate
 from still.simulation import options, tick
-from still.world import READING_NAMES, delivery_description, personal_threads, snapshot
+from still.world import READING_NAMES, book_title, delivery_description, job_details, personal_threads, snapshot
 
 
 MODEL_ERRORS = (URLError, OSError, ValueError, KeyError, IndexError, TypeError)
@@ -21,23 +21,27 @@ MODEL_ERRORS = (URLError, OSError, ValueError, KeyError, IndexError, TypeError)
 def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
     schema = {
         "type": "object",
-        "properties": {"choice": {"type": "integer", "enum": list(range(len(actions)))}},
-        "required": ["choice"],
+        "properties": {
+            "choice": {"type": "integer", "enum": list(range(len(actions)))},
+            "book_title": {"type": ["string", "null"]},
+        },
+        "required": ["choice", "book_title"],
         "additionalProperties": False,
     }
     text = complete(base_url, model, [
         {"role": "system", "content": (
             "You are a courier deciding your next action. Each legal action has an explicit choice index. "
             "Return that exact zero-based index: 0 means the first action, not 1. "
-            "Try to finish outstanding deliveries before their deadlines, but work is not your whole life. "
+            "Compare outstanding deliveries by deadline and their job.purpose: delaying one holds up its recipient's work, and an accepted input can unlock a follow-up parcel. Choose which commitment to serve first, but work is not your whole life. "
             "Use spare time to restore the file, follow its owner lead when a reply is ready, or borrow and read private notes. "
             "follow_owner asks Ivo first and then Mara; replies take time. read_notes reads the borrowed copy before returning it. "
             "Keep return promises, and help a person if a late return has made them refuse another loan. "
             "Do not return borrowed notes unread unless work or a promise requires it. "
-            "Ivo lends repair-notes and Mara lends shared-paths; each has four passages. Prefer unread notes over rereading the same ones. "
+            "Ivo and Mara each lend a four-part book about terminal work. When choosing borrow_notes for a book whose title is null in state.books, invent a short, specific title grounded in its subject and terminal world; do not use generic labels such as 'repair notes' or 'shared paths'. "
+            "Return book_title as null for already named books and all other actions. For an unnamed book return the title as plain text, at most 80 characters. "
             "Personal actions use time too; choose them deliberately rather than wandering or waiting forever. "
             "Do not wait without a reason. The simulation, not you, decides consequences. "
-            "Return only a JSON object containing the integer choice."
+            "Return only a JSON object containing choice and book_title."
         )},
         {"role": "user", "content": json.dumps({"state": state, "actions": [
             {"choice": index, "action": action} for index, action in enumerate(actions)
@@ -46,11 +50,19 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
         "name": "courier_choice", "strict": True, "schema": schema,
     }})
     result = json.loads(text)
-    if not isinstance(result, dict) or set(result) != {"choice"}:
-        raise ValueError("model must return only a choice")
-    number = result["choice"]
+    if not isinstance(result, dict) or set(result) != {"choice", "book_title"}:
+        raise ValueError("model must return only a choice and optional book title")
+    number, title = result["choice"], result["book_title"]
     if type(number) is not int or not 0 <= number < len(actions):
         raise ValueError("model choice is not a legal action index")
+    action = actions[number]
+    unnamed = action["kind"] == "borrow_notes" and not state.get("books", {}).get(action["person_id"], {}).get("title")
+    if unnamed:
+        if not isinstance(title, str) or not title.strip() or len(title.strip()) > 80 or any(ord(char) < 32 for char in title):
+            raise ValueError("borrowed book title must be plain text of at most 80 characters")
+        return {**action, "_book_title": title.strip()}
+    if title is not None:
+        raise ValueError("book title is only valid when naming an unnamed book")
     return actions[number]
 
 
@@ -70,7 +82,9 @@ def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
             Event.kind.not_in(("waited", "encounter", "first_meeting")),
             Event.tick_id.not_in(select(BackfillTick.tick_id)),
         ).order_by(Event.id.desc()).limit(8)))
-        references = set(db.scalars(select(Person.name))) | set(db.scalars(select(Place.name))) | set(READING_NAMES.values())
+        references = set(db.scalars(select(Person.name))) | set(db.scalars(select(Place.name))) | {
+            book_title(db, person_id) for person_id in READING_NAMES
+        }
         threads = personal_threads(db)
         personal = db.get(PersonalFile, 1)
         if personal:
@@ -81,7 +95,8 @@ def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
         ).order_by(Delivery.due_at, Delivery.id).limit(2 - len(threads))):
             description = delivery_description(delivery.id, delivery.contents)
             references.add(description)
-            threads.append(f"The {description} was still undelivered past its deadline at the {delivery.destination.name}.")
+            job = job_details(db, delivery.id)
+            threads.append(f"The {description} was still undelivered past its deadline at the {delivery.destination.name}. {job.get('purpose', '')}".strip())
         for event in recent + result["events"]:
             if event.get("delivery_id"):
                 parcel = db.get(Delivery, event["delivery_id"])
@@ -105,13 +120,16 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
     error = None
     try:
         state = snapshot(path)
+        state["deliveries"] = [parcel for parcel in state["deliveries"] if parcel["status"] in ("queued", "carried")]
         state["now"] = (now or datetime.now(UTC)).isoformat()
         actions = options(path, hardware, now=now)
-        action = actions[0] if len(actions) == 1 else choose(base_url, model, actions, state)
+        action = dict(actions[0] if len(actions) == 1 else choose(base_url, model, actions, state))
+        chosen_book_title = action.pop("_book_title", None)
     except MODEL_ERRORS as failure:
         error = f"choice failed: {failure}"[:1000]
-        action = {"kind": "wait"}
-    result = tick(path, tick_key, now or datetime.now(UTC), action, hardware, owner=owner, grow=grow)
+        action, chosen_book_title = {"kind": "wait"}, None
+    result = tick(path, tick_key, now or datetime.now(UTC), action, hardware, owner=owner, grow=grow,
+                  book_title=chosen_book_title)
     tick_id = result["id"]
     status = "failed" if error else ("writing" if result["publish"] else "silent")
     with session(path, immediate=True) as db:
