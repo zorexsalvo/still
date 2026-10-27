@@ -80,6 +80,42 @@ class EngineTest(unittest.TestCase):
                 connection.rollback()
 
     @patch("still.engine.generate")
+    @patch("still.engine.choose")
+    def test_measured_model_times_are_stored_with_the_tick(self, choose, generate):
+        def answer_action(base_url, model, actions, state, *, timing=None):
+            timing["model_reply_ms"] = 480.2
+            return {"kind": "visit", "person_id": "ivo"}
+
+        def write_entry(base_url, model, moment, *, references=(), timing=None):
+            timing["model_reply_ms"] = 612.4
+            return "I went to the Repair shop. I met Ivo there."
+
+        choose.side_effect = answer_action
+        generate.side_effect = write_entry
+        result = run_tick(self.path, "timed", "http://local/v1", "still", now=self.now,
+                          hardware={"load_1m": 0.1, "cpu_count": 1})
+        self.assertIsNotNone(result["entry"])
+        with session(self.path, readonly=True) as db:
+            hardware = db.get(Tick, result["tick_id"]).hardware
+        self.assertEqual(hardware["model_reply_ms"], 612.4)
+        self.assertEqual(hardware["model_choice_ms"], 480.2)
+        self.assertEqual(hardware["load_1m"], 0.1)
+
+        def wait_action(base_url, model, actions, state, *, timing=None):
+            timing["model_reply_ms"] = 90.5
+            return {"kind": "wait"}
+
+        choose.side_effect = wait_action
+        generate.side_effect = AssertionError("a silent tick must not call the writer")
+        quiet = run_tick(self.path, "timed-quiet", "http://local/v1", "still",
+                         now=self.now + timedelta(hours=1))
+        self.assertIsNone(quiet["entry"])
+        with session(self.path, readonly=True) as db:
+            quiet_hardware = db.get(Tick, quiet["tick_id"]).hardware
+        self.assertEqual(quiet_hardware["model_choice_ms"], 90.5)
+        self.assertNotIn("model_reply_ms", quiet_hardware)
+
+    @patch("still.engine.generate")
     @patch("still.engine.choose", return_value={"kind": "wait"})
     def test_silent_tick_never_calls_writer(self, choose, generate):
         result = run_tick(self.path, "quiet", "http://local/v1", "still", now=self.now)

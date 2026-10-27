@@ -2,6 +2,7 @@ import io
 import json
 import unittest
 from unittest.mock import patch
+from urllib.error import URLError
 
 from still.prose import check_subject, generate, validate
 
@@ -71,6 +72,22 @@ class ProseTest(unittest.TestCase):
         for phrase in ("operation", "OPERATIONS", "completed", "state is now", "updated", "successfully"):
             with self.subTest(phrase=phrase), self.assertRaisesRegex(ValueError, "system language"):
                 validate(f"I left the owner line blank. The {phrase} was recorded.")
+
+    @patch("still.prose.urlopen")
+    def test_complete_times_the_generation_round_trip(self, urlopen):
+        urlopen.return_value = self.response("I left it on the shelf. The usual receptionist was absent.")
+        timing = {}
+        generate("http://localhost:8080/v1", "local", timing=timing)
+        self.assertIsInstance(timing["model_reply_ms"], float)
+        self.assertGreaterEqual(timing["model_reply_ms"], 0)
+
+    @patch("still.prose.urlopen")
+    def test_failed_reply_records_no_timing(self, urlopen):
+        urlopen.side_effect = URLError("model is down")
+        timing = {}
+        with self.assertRaises(URLError):
+            generate("http://localhost:8080/v1", "local", timing=timing)
+        self.assertEqual(timing, {})
 
     @patch("still.prose.urlopen")
     def test_generate_applies_reference_aware_receipt_check(self, urlopen):

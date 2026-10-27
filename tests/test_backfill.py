@@ -37,7 +37,7 @@ class BackfillTest(unittest.TestCase):
             self.due = db.get(WorkerState, 1).next_tick_at
 
     def generate(self, *, day=None, days=1):
-        with patch("still.engine.choose", side_effect=lambda url, model, actions, state: actions[0]), patch(
+        with patch("still.engine.choose", side_effect=lambda url, model, actions, state, *, timing=None: actions[0]), patch(
             "still.engine.generate", return_value="I made a note."
         ):
             return backfill(self.path, day or self.day, "http://unused/v1", "test-model", days=days)

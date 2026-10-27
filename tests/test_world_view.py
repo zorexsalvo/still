@@ -71,19 +71,39 @@ class WorldViewTest(unittest.TestCase):
     def test_host_readings_blend_into_the_footer_in_life_terms(self):
         with session(self.path) as db:
             db.add(Tick(tick_key="reading", at=self.now.isoformat(), action={"kind": "wait"},
-                        hardware={"temperature_c": 47.5, "model_endpoint_ms": 12.3,
-                                  "sampled_at": self.now.isoformat()}))
+                        hardware={"temperature_c": 47.5, "model_reply_ms": 612.4,
+                                  "model_choice_ms": 480.2, "sampled_at": self.now.isoformat()}))
         body = world_page(self.path, now=self.now).body.decode()
         self.assertIn("Warmth", body)
         self.assertIn("47.5", body)
         self.assertIn("Reply", body)
-        self.assertIn("12.3", body)
+        self.assertIn("612", body)
         # The literal reading is present, but quietly subordinate.
         self.assertIn("CPU temp", body)
         self.assertIn(">model<", body)
         # It is a footer meta row, not a standalone world section.
         self.assertGreater(body.index("Warmth"), body.index("<footer"))
         self.assertNotIn("<h3>Host</h3>", body)
+
+    def test_endpoint_connectivity_is_not_shown_as_a_reply(self):
+        with session(self.path) as db:
+            db.add(Tick(tick_key="connect", at=self.now.isoformat(), action={"kind": "wait"},
+                        hardware={"temperature_c": 47.5, "model_endpoint_ms": 0.9,
+                                  "sampled_at": self.now.isoformat()}))
+        body = world_page(self.path, now=self.now).body.decode()
+        self.assertIn("Warmth", body)
+        self.assertNotIn("Reply", body)
+        self.assertNotIn("0.9", body)
+
+    def test_choice_time_is_shown_when_no_entry_was_written(self):
+        with session(self.path) as db:
+            db.add(Tick(tick_key="choice", at=self.now.isoformat(), action={"kind": "wait"},
+                        hardware={"temperature_c": 47.5, "model_choice_ms": 480.2,
+                                  "sampled_at": self.now.isoformat()}))
+        body = world_page(self.path, now=self.now).body.decode()
+        self.assertIn("Choice", body)
+        self.assertIn("480", body)
+        self.assertNotIn("Reply", body)
 
     def test_host_readings_absent_leave_no_footer_noise(self):
         body = world_page(self.path, now=self.now).body.decode()
@@ -93,7 +113,7 @@ class WorldViewTest(unittest.TestCase):
     def test_host_readings_also_appear_in_the_diary_footer(self):
         with session(self.path) as db:
             db.add(Tick(tick_key="reading", at=self.now.isoformat(), action={"kind": "wait"},
-                        hardware={"temperature_c": 41.0, "model_endpoint_ms": 9.5,
+                        hardware={"temperature_c": 41.0, "model_reply_ms": 9.5,
                                   "sampled_at": self.now.isoformat()}))
         body = diary(self.path, now=self.now).body.decode()
         self.assertIn("Warmth", body)

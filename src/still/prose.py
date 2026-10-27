@@ -5,6 +5,7 @@ from collections import Counter
 import json
 import re
 import sys
+import time
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
@@ -40,7 +41,9 @@ I finished the route late because moving had been slow today.
 This is all I know; I do not know why the receptionist was absent."""
 
 
-def complete(base_url: str, model: str, messages: list[dict], *, response_format=None) -> str:
+def complete(base_url: str, model: str, messages: list[dict], *, response_format=None,
+             timing: dict | None = None) -> str:
+    """One chat completion. `timing` receives the measured generation round trip."""
     payload = {
         "model": model,
         "messages": messages,
@@ -55,8 +58,12 @@ def complete(base_url: str, model: str, messages: list[dict], *, response_format
         data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
+    # The timer covers the response body too, so the figure is the model's answer, not a connect.
+    started = time.monotonic()
     with urlopen(request, timeout=300) as response:
         result = json.load(response)
+    if timing is not None:
+        timing["model_reply_ms"] = round((time.monotonic() - started) * 1000, 1)
     choice = result["choices"][0]
     if choice.get("finish_reason") != "stop":
         raise ValueError("generation did not finish normally; entry may be truncated")
@@ -116,11 +123,12 @@ def validate(text: str, *, references: tuple[str, ...] = ()) -> str:
     return text
 
 
-def generate(base_url: str, model: str, moment: str = MOMENT, *, references: tuple[str, ...] = ()) -> str:
+def generate(base_url: str, model: str, moment: str = MOMENT, *, references: tuple[str, ...] = (),
+             timing: dict | None = None) -> str:
     return validate(complete(base_url, model, [
         {"role": "system", "content": VOICE},
         {"role": "user", "content": moment},
-    ]), references=references)
+    ], timing=timing), references=references)
 
 
 def main() -> None:

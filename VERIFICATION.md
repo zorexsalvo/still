@@ -72,6 +72,14 @@ Chrome checked the diary and World page at 1440px and 390px with isolated synthe
 
 Five expanded stops have distinct static SVG backdrops. A parcel appears only while one is actually carried. Chrome rendered isolated synthetic fixtures at 1440px and 390px; the document did not overflow horizontally (the delivery table retains its own horizontal scroll). The scene gallery and page captures were inspected under `/tmp/still-work-review/`. No live state or diary entries were changed for these checks. The drawings preserve the existing low-contrast decorative line style. This is not a real-model, Docker, Pi-load or thermal verification.
 
+## Measured model reply time — 2026-10-27
+
+**145 tests pass** natively with `python -W error::ResourceWarning -m unittest discover -s tests -t tests`. The footer's "Reply" figure had been the `GET /v1/models` round trip, a static model list that answers in 0.7–0.9 ms locally, while real entries took roughly 500–1000 ms in `data/llama-server.log`. `still.hardware.endpoint_latency_ms` and its recorded `model_endpoint_ms` remain a connectivity check; they are no longer presented as a reply.
+
+`still.prose.complete` now times its own `chat/completions` request, body included, and hands the reading to an optional `timing` dict that `generate` forwards. `still.engine.choose` takes the same keyword, so a tick records `model_choice_ms` for the action choice and `model_reply_ms` for a written entry on its own `ticks.hardware` row. Neither field changes behavior. Only a timed completion is shown as "Reply"; a tick with only the endpoint check or only a choice reads as "Choice" or shows no time at all.
+
+A local stub endpoint was delayed by a fixed 300 ms and driven through `run_tick`: the tick stored `model_choice_ms` 314.8 and `model_reply_ms` 301.3, and the footer rendered "Reply 301 ms" while the recorded endpoint 0.9 ms stayed hidden. The live database was read, not written; its older ticks carry no reply time, so they now show only the temperature. Silent and failed-writer ticks still keep the choice time they measured. No real-model, Docker or Pi timing was performed here.
+
 ## Limits of this evidence
 
 Hourly cadence and long gaps were tested deterministically rather than by waiting a full week. Pi operation is confirmed separately above, but no multi-day soak duration, Pi-specific performance measurements or thermal calibration are documented here. Neither deployment nor these checks guarantee future model factuality or prose quality. The starter world can still produce long silences under its intentionally simple writing gate. See README for operational limits and deferred features.

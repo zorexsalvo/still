@@ -18,7 +18,8 @@ from still.world import READING_NAMES, book_title, delivery_description, job_det
 MODEL_ERRORS = (URLError, OSError, ValueError, KeyError, IndexError, TypeError)
 
 
-def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
+def choose(base_url: str, model: str, actions: list[dict], state: dict,
+           *, timing: dict | None = None) -> dict:
     schema = {
         "type": "object",
         "properties": {
@@ -48,7 +49,7 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
         ]})},
     ], response_format={"type": "json_schema", "json_schema": {
         "name": "courier_choice", "strict": True, "schema": schema,
-    }})
+    }}, timing=timing)
     result = json.loads(text)
     if not isinstance(result, dict) or set(result) != {"choice", "book_title"}:
         raise ValueError("model must return only a choice and optional book title")
@@ -69,6 +70,16 @@ def choose(base_url: str, model: str, actions: list[dict], state: dict) -> dict:
 def _entry(db, tick_id):
     row = db.scalar(select(Entry).where(Entry.tick_id == tick_id))
     return as_dict(row) if row else None
+
+
+def _record_model_ms(db, tick_id: int, choice_ms, reply_ms) -> None:
+    """Keep measured model round trips with the tick that produced them."""
+    measured = {key: value for key, value in (
+        ("model_choice_ms", choice_ms), ("model_reply_ms", reply_ms)) if value is not None}
+    if not measured:
+        return
+    row = db.get(Tick, tick_id)
+    row.hardware = {**(row.hardware or {}), **measured}
 
 
 def writing_moment(path: Path, result: dict) -> tuple[str, tuple[str, ...]]:
@@ -118,12 +129,15 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
             # A retry can read the result, never generate a skipped moment later.
             return {"tick_id": existing, "entry": _entry(db, existing), "error": None}
     error = None
+    choice_ms = None
     try:
         state = snapshot(path)
         state["deliveries"] = [parcel for parcel in state["deliveries"] if parcel["status"] in ("queued", "carried")]
         state["now"] = (now or datetime.now(UTC)).isoformat()
         actions = options(path, hardware, now=now)
-        action = dict(actions[0] if len(actions) == 1 else choose(base_url, model, actions, state))
+        timing: dict = {}
+        action = dict(actions[0] if len(actions) == 1 else choose(base_url, model, actions, state, timing=timing))
+        choice_ms = timing.get("model_reply_ms")
         chosen_book_title = action.pop("_book_title", None)
     except MODEL_ERRORS as failure:
         error = f"choice failed: {failure}"[:1000]
@@ -137,21 +151,27 @@ def run_tick(path: Path, tick_key: str, base_url: str, model: str,
         claimed = db.execute(insert(Publication).values(
             tick_id=tick_id, status=status, error=error
         ).on_conflict_do_nothing(index_elements=[Publication.tick_id])).rowcount
+        # A silent tick still made a real model call; keep the time it measured.
+        _record_model_ms(db, tick_id, choice_ms, None)
         if not claimed or status != "writing":
             return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": error}
     try:
         moment, references = writing_moment(path, result)
-        text = generate(base_url, model, moment, references=references)
+        timing = {}
+        text = generate(base_url, model, moment, references=references, timing=timing)
+        reply_ms = timing.get("model_reply_ms")
     except MODEL_ERRORS as failure:
         error = f"writing failed: {failure}"[:1000]
         with session(path, immediate=True) as db:
             require_owner(db, owner)
+            _record_model_ms(db, tick_id, choice_ms, None)
             publication = db.get(Publication, tick_id)
             publication.status = "failed"
             publication.error = error
         return {"tick_id": tick_id, "entry": None, "error": error}
     with session(path, immediate=True) as db:
         require_owner(db, owner)
+        _record_model_ms(db, tick_id, choice_ms, reply_ms)
         publication = db.get(Publication, tick_id)
         if publication.status != "writing":
             return {"tick_id": tick_id, "entry": _entry(db, tick_id), "error": "publication no longer active"}

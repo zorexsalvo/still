@@ -163,8 +163,8 @@ def host_status(path: Path) -> str:
     """The worker's last machine reading, named in the diary's own terms.
 
     The world's voice never explains hardware, so the labels stay in the life
-    metaphor; the literal reading (CPU temperature, model reply time) is carried
-    as a quiet secondary word rather than the headline.
+    metaphor; the literal reading (CPU temperature, measured model reply time) is
+    carried as a quiet secondary word rather than the headline.
     """
     try:
         with session(path, readonly=True) as db:
@@ -173,17 +173,25 @@ def host_status(path: Path) -> str:
     except (SQLAlchemyError, ValueError):
         return ""
     temperature = hardware.get("temperature_c")
-    latency = hardware.get("model_endpoint_ms")
+    reply = hardware.get("model_reply_ms")
+    choice = hardware.get("model_choice_ms")
     sampled = hardware.get("sampled_at")
     details = []
     if isinstance(temperature, (int, float)) and not isinstance(temperature, bool):
         details.append(f'<span>Warmth {temperature:.1f}&#160;°C <span class="host-kind">CPU temp</span></span>')
-    if isinstance(latency, (int, float)) and not isinstance(latency, bool):
-        details.append(f'<span>Reply {latency:.1f}&#160;ms <span class="host-kind">model</span></span>')
+    # Only a timed completion counts as a reply; the endpoint check is not shown as one.
+    if isinstance(reply, (int, float)) and not isinstance(reply, bool):
+        details.append(f'<span>Reply {_milliseconds(reply)}&#160;ms <span class="host-kind">model</span></span>')
+    elif isinstance(choice, (int, float)) and not isinstance(choice, bool):
+        details.append(f'<span>Choice {_milliseconds(choice)}&#160;ms <span class="host-kind">model</span></span>')
     if not details:
         return ""
     title = f' title="recorded {escape(sampled)}"' if isinstance(sampled, str) else ""
     return f'<aside class="life-status host-status" aria-label="Machine readings"{title}>' + "".join(details) + '</aside>'
+
+
+def _milliseconds(value: float) -> str:
+    return f"{value:,.0f}" if abs(value) >= 10 else f"{value:.1f}"
 
 
 def _status_time(value: str) -> str:
